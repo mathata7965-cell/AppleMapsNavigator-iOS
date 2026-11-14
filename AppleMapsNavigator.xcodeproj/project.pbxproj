@@ -210,11 +210,11 @@
 			};
 			buildConfigurationList = FF0000010000000000000001 /* Build configuration list for PBXProject "AppleMapsNavigator" */;
 			compatibilityVersion = "Xcode 14.0";
-			developmentRegion = zh-Hant;
+			developmentRegion = "zh-Hant";
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
-				zh-Hant,
+				"zh-Hant",
 				Base,
 			);
 			mainGroup = DD0000000000000000000001;

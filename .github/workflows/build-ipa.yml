@@ -7,6 +7,9 @@ on:
       - main
       - master
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build-ipa:
     name: Compile iOS App & Package Sideload IPA
@@ -16,11 +19,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify Xcode version
-        run: xcodebuild -version
+      - name: Verify Xcode & Generate Project via XcodeGen
+        run: |
+          xcodebuild -version
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen generate
 
       - name: Build Release iOS App (Ad-Hoc Sideload Ready)
         run: |
+          set -o pipefail
           xcodebuild clean build \
             -project AppleMapsNavigator.xcodeproj \
             -target AppleMapsNavigator \
@@ -30,7 +39,15 @@ jobs:
             AD_HOC_CODE_SIGNING_ALLOWED=YES \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=YES
+            CODE_SIGNING_ALLOWED=YES 2>&1 | tee xcodebuild.log
+
+      - name: Upload Xcode Build Log on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
+          retention-days: 7
 
       - name: Ad-Hoc Sign & Package Payload into AppleMapsNavigator.ipa
         run: |

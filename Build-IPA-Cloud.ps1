@@ -20,11 +20,62 @@ $RootDir = $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($RootDir)) {
     $RootDir = Get-Location
 }
+$TokenCachePath = Join-Path $RootDir ".github_token.local"
+
+function Download-GitHubArtifactZip {
+    param(
+        [string]$DownloadUrl,
+        [string]$OutZipPath,
+        [string]$AuthToken
+    )
+    # 先取得 302 預簽章下載網址，避免 PowerShell 5.1 將 Authorization 標頭轉發給 Azure Storage 造成 400 錯誤
+    $RedirectUrl = $null
+    $Req = [System.Net.HttpWebRequest]::Create($DownloadUrl)
+    $Req.Method = "GET"
+    $Req.UserAgent = "AppleMapsNavigator-CloudBuilder"
+    $Req.Headers.Add("Authorization", "Bearer $AuthToken")
+    $Req.AllowAutoRedirect = $false
+    try {
+        $Resp = $Req.GetResponse()
+        $RedirectUrl = $Resp.Headers["Location"]
+        $Resp.Close()
+    } catch [System.Net.WebException] {
+        if ($_.Exception.Response) {
+            $RedirectUrl = $_.Exception.Response.Headers["Location"]
+            $_.Exception.Response.Close()
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($RedirectUrl)) {
+        $DlHeaders = @{
+            "Authorization" = "Bearer $AuthToken"
+            "User-Agent"    = "AppleMapsNavigator-CloudBuilder"
+        }
+        Invoke-WebRequest -Uri $DownloadUrl -Headers $DlHeaders -OutFile $OutZipPath -UseBasicParsing
+    } else {
+        Invoke-WebRequest -Uri $RedirectUrl -OutFile $OutZipPath -UseBasicParsing
+    }
+}
 
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host "  AppleMapsNavigator 雲端免費編譯 IPA 工具 (Windows)" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host ""
+
+if ([string]::IsNullOrWhiteSpace($Token) -and (Test-Path $TokenCachePath)) {
+    try {
+        $Encrypted = Get-Content -Path $TokenCachePath -Raw -Encoding UTF8
+        if (-not [string]::IsNullOrWhiteSpace($Encrypted)) {
+            $SecureCached = ConvertTo-SecureString $Encrypted.Trim()
+            $Bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureCached)
+            $Token = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($Bstr)
+            [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($Bstr)
+            Write-Host "已從本機加密快取載入 GitHub Token (.github_token.local)" -ForegroundColor DarkGray
+        }
+    } catch {
+        Remove-Item -Path $TokenCachePath -Force -ErrorAction SilentlyContinue
+    }
+}
 
 if ([string]::IsNullOrWhiteSpace($Token)) {
     Write-Host "請輸入您的 GitHub Personal Access Token (需勾選 repo 與 workflow 權限)：" -ForegroundColor Yellow
@@ -40,23 +91,35 @@ if ([string]::IsNullOrWhiteSpace($Token)) {
 }
 
 $Headers = @{
-    "Authorization" = "Bearer $Token"
-    "Accept"        = "application/vnd.github+json"
-    "User-Agent"    = "AppleMapsNavigator-CloudBuilder"
+    "Authorization"        = "Bearer $Token"
+    "Accept"               = "application/vnd.github+json"
+    "User-Agent"           = "AppleMapsNavigator-CloudBuilder"
     "X-GitHub-Api-Version" = "2022-11-28"
 }
 
 Write-Host "[1/5] 驗證 GitHub 帳號..." -ForegroundColor Green
-$User = Invoke-RestMethod -Uri "https://api.github.com/user" -Headers $Headers -Method Get
+try {
+    $User = Invoke-RestMethod -Uri "https://api.github.com/user" -Headers $Headers -Method Get
+} catch {
+    if (Test-Path $TokenCachePath) {
+        Remove-Item -Path $TokenCachePath -Force -ErrorAction SilentlyContinue
+    }
+    throw "GitHub Token 驗證失敗，請確認 Token 有效且包含 repo 與 workflow 權限。"
+}
 $Owner = $User.login
 Write-Host "      已登入帳號：$Owner"
 
+# 以 Windows DPAPI 加密快取 Token 於本機（不會上傳至 GitHub）
+try {
+    $SecureToSave = ConvertTo-SecureString -String $Token -AsPlainText -Force
+    $EncryptedSave = ConvertFrom-SecureString -SecureString $SecureToSave
+    [System.IO.File]::WriteAllText($TokenCachePath, $EncryptedSave, (New-Object System.Text.UTF8Encoding($false)))
+} catch { }
+
 Write-Host "[2/5] 檢查或建立 GitHub 倉庫 ($Owner/$RepoName)..." -ForegroundColor Green
 $RepoUri = "https://api.github.com/repos/$Owner/$RepoName"
-$RepoExists = $false
 try {
     $RepoInfo = Invoke-RestMethod -Uri $RepoUri -Headers $Headers -Method Get
-    $RepoExists = $true
     $Branch = $RepoInfo.default_branch
     Write-Host "      找到現有倉庫（預設分支：$Branch）"
 } catch {
@@ -73,7 +136,6 @@ try {
     Start-Sleep -Seconds 2
 }
 
-# 若倉庫為空，先初始化 README 讓 refs/heads/$Branch 存在
 try {
     $RefInfo = Invoke-RestMethod -Uri "$RepoUri/git/ref/heads/$Branch" -Headers $Headers -Method Get
 } catch {
@@ -94,7 +156,7 @@ $ParentCommitSha = $RefInfo.object.sha
 Write-Host "[3/5] 上傳專案檔案至 GitHub (免安裝 Git)..." -ForegroundColor Green
 $AllFiles = Get-ChildItem -Path $RootDir -File -Recurse -Force | Where-Object {
     $rel = $_.FullName.Substring($RootDir.Length + 1).Replace("\", "/")
-    ($rel -notmatch '^(\.git/|build/|AppleMapsNavigator\.ipa$|Build-IPA-Cloud\.ps1\.log$)') -and
+    ($rel -notmatch '^(\.git/|build/|AppleMapsNavigator\.ipa$|Build-IPA-Cloud\.ps1\.log$|\.github_token\.local$|xcodebuild\.log$)') -and
     ($_.Extension -ne ".ipa") -and
     ($_.Name -ne ".DS_Store")
 }
@@ -158,6 +220,8 @@ while ($TargetRun.status -ne "completed") {
     $TargetRun = Invoke-RestMethod -Uri "$RepoUri/actions/runs/$($TargetRun.id)" -Headers $Headers -Method Get
 }
 
+$ArtifactsRes = Invoke-RestMethod -Uri "$RepoUri/actions/runs/$($TargetRun.id)/artifacts" -Headers $Headers -Method Get
+
 if ($TargetRun.conclusion -ne "success") {
     try {
         $JobsRes = Invoke-RestMethod -Uri "$RepoUri/actions/runs/$($TargetRun.id)/jobs" -Headers $Headers -Method Get
@@ -176,12 +240,30 @@ if ($TargetRun.conclusion -ne "success") {
                 }
             }
         }
+
+        $LogArtifact = $ArtifactsRes.artifacts | Where-Object { $_.name -eq "xcodebuild-log" } | Select-Object -First 1
+        if ($LogArtifact) {
+            $LogZip = Join-Path $env:TEMP "xcodebuild-log-$($TargetRun.id).zip"
+            $LogDir = Join-Path $env:TEMP "xcodebuild-log-$($TargetRun.id)"
+            if (Test-Path $LogDir) { Remove-Item -Path $LogDir -Recurse -Force }
+            Download-GitHubArtifactZip -DownloadUrl $LogArtifact.archive_download_url -OutZipPath $LogZip -AuthToken $Token
+            Expand-Archive -Path $LogZip -DestinationPath $LogDir -Force
+            $LogFile = Join-Path $LogDir "xcodebuild.log"
+            if (Test-Path $LogFile) {
+                $SavedLog = Join-Path $RootDir "xcodebuild.log"
+                Copy-Item -Path $LogFile -Destination $SavedLog -Force
+                Write-Host "      已下載完整編譯日誌至：$SavedLog" -ForegroundColor Cyan
+                $ErrLines = Get-Content -Path $SavedLog -Encoding UTF8 | Select-String -Pattern "error:|fatal error:|BUILD FAILED" | Select-Object -Last 15
+                foreach ($Line in $ErrLines) {
+                    Write-Host "      $($Line.Line)" -ForegroundColor Red
+                }
+            }
+        }
     } catch { }
     throw "雲端編譯失敗 ($($TargetRun.conclusion))。請開啟上方建置網址查看 Xcode 錯誤日誌：$($TargetRun.html_url)"
 }
 
 Write-Host "[5/5] 下載並解壓縮 AppleMapsNavigator.ipa..." -ForegroundColor Green
-$ArtifactsRes = Invoke-RestMethod -Uri "$RepoUri/actions/runs/$($TargetRun.id)/artifacts" -Headers $Headers -Method Get
 $IpaArtifact = $ArtifactsRes.artifacts | Where-Object { $_.name -eq "AppleMapsNavigator-ipa" } | Select-Object -First 1
 
 if (-not $IpaArtifact) {
@@ -192,29 +274,7 @@ $TempZip = Join-Path $env:TEMP "AppleMapsNavigator-ipa-$($TargetRun.id).zip"
 $TempExtract = Join-Path $env:TEMP "AppleMapsNavigator-ipa-$($TargetRun.id)"
 if (Test-Path $TempExtract) { Remove-Item -Path $TempExtract -Recurse -Force }
 
-# 先取得 302 預簽章下載網址，避免 PowerShell 5.1 將 Authorization 標頭轉發給 Azure Storage 造成 400 錯誤
-$RedirectUrl = $null
-$Req = [System.Net.HttpWebRequest]::Create($IpaArtifact.archive_download_url)
-$Req.Method = "GET"
-$Req.UserAgent = "AppleMapsNavigator-CloudBuilder"
-$Req.Headers.Add("Authorization", "Bearer $Token")
-$Req.AllowAutoRedirect = $false
-try {
-    $Resp = $Req.GetResponse()
-    $RedirectUrl = $Resp.Headers["Location"]
-    $Resp.Close()
-} catch [System.Net.WebException] {
-    if ($_.Exception.Response) {
-        $RedirectUrl = $_.Exception.Response.Headers["Location"]
-        $_.Exception.Response.Close()
-    }
-}
-
-if ([string]::IsNullOrWhiteSpace($RedirectUrl)) {
-    Invoke-WebRequest -Uri $IpaArtifact.archive_download_url -Headers $Headers -OutFile $TempZip -UseBasicParsing
-} else {
-    Invoke-WebRequest -Uri $RedirectUrl -OutFile $TempZip -UseBasicParsing
-}
+Download-GitHubArtifactZip -DownloadUrl $IpaArtifact.archive_download_url -OutZipPath $TempZip -AuthToken $Token
 Expand-Archive -Path $TempZip -DestinationPath $TempExtract -Force
 
 $ExtractedIpa = Join-Path $TempExtract "AppleMapsNavigator.ipa"

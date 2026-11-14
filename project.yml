@@ -1,9 +1,9 @@
 name: AppleMapsNavigator
 options:
   bundleIdPrefix: com.example
+  developmentLanguage: zh-Hant
   deploymentTarget:
     iOS: "17.0"
-  xcodeVersion: "15.4"
 settings:
   base:
     SWIFT_VERSION: "5.9"
