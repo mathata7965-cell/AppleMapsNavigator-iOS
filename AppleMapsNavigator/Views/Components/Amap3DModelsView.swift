@@ -10,6 +10,9 @@ struct Vehicle3DMeshMarkerView: View {
     @State private var pulseActive = false
 
     var body: some View {
+        let ringColor: Color = beamColor.opacity(pulseActive ? 0.15 : 0.45)
+        let ringSize: CGFloat = pulseActive ? 62 : 44
+
         ZStack {
             // 前方視角導引光錐
             VehicleHeadlightBeam()
@@ -28,11 +31,8 @@ struct Vehicle3DMeshMarkerView: View {
 
             // 地面環境陰影 + 能量光環
             Circle()
-                .strokeBorder(
-                    beamColor.opacity(pulseActive ? 0.15 : 0.45),
-                    lineWidth: 2
-                )
-                .frame(width: pulseActive ? 62 : 44, height: pulseActive ? 62 : 44)
+                .strokeBorder(ringColor, lineWidth: 2)
+                .frame(width: ringSize, height: ringSize)
 
             Ellipse()
                 .fill(Color.black.opacity(0.32))
@@ -281,6 +281,7 @@ struct Landmark3DExtrudedPinView: View {
     }
 
     var body: some View {
+        let scaleFactor: CGFloat = isSelected ? 1.12 : 1.0
         VStack(spacing: 3) {
             if isTaipei101 {
                 taipei101TowerModel
@@ -288,57 +289,50 @@ struct Landmark3DExtrudedPinView: View {
                 isometricPedestalModel
             }
 
-            Text(place.name)
-                .font(.system(size: isSelected ? 12 : 10, weight: isSelected ? .bold : .semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(
-                    Capsule()
-                        .strokeBorder(
-                            isSelected ? place.category.accentColor : Color.white.opacity(0.45),
-                            lineWidth: isSelected ? 1.4 : 0.6
-                        )
-                )
-                .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
+            nameBadgePill
         }
-        .scaleEffect(isSelected ? 1.12 : 1.0)
+        .scaleEffect(scaleFactor)
         .animation(.spring(response: 0.34, dampingFraction: 0.72), value: isSelected)
+    }
+
+    private var nameBadgePill: some View {
+        let fontSize: CGFloat = isSelected ? 12 : 10
+        let fontWeight: Font.Weight = isSelected ? .bold : .semibold
+        let borderColor: Color = isSelected ? place.category.accentColor : Color.white.opacity(0.45)
+        let borderWidth: CGFloat = isSelected ? 1.4 : 0.6
+
+        return Text(place.name)
+            .font(.system(size: fontSize, weight: fontWeight))
+            .foregroundStyle(Color.primary)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(
+                Capsule()
+                    .strokeBorder(borderColor, lineWidth: borderWidth)
+            )
+            .shadow(color: Color.black.opacity(0.18), radius: 4, y: 2)
     }
 
     /// 台北 101 八節竹節 3D 立體模型
     private var taipei101TowerModel: some View {
-        VStack(spacing: 0) {
+        let towerShadow: Color = Color.cyan.opacity(isSelected ? 0.55 : 0.25)
+
+        return VStack(spacing: 0) {
             // 避雷針尖塔
             Rectangle()
-                .fill(LinearGradient(colors: [.cyan, .white], startPoint: .top, endPoint: .bottom))
+                .fill(LinearGradient(colors: [Color.cyan, Color.white], startPoint: .top, endPoint: .bottom))
                 .frame(width: 2.5, height: 12)
 
             // 漸縮上層觀景塔身
             RoundedRectangle(cornerRadius: 2)
-                .fill(LinearGradient(colors: [.cyan.opacity(0.9), AppleMapsTheme.navBlue], startPoint: .top, endPoint: .bottom))
+                .fill(LinearGradient(colors: [Color.cyan.opacity(0.9), AppleMapsTheme.navBlue], startPoint: .top, endPoint: .bottom))
                 .frame(width: 11, height: 8)
 
             // 竹節狀立體樓層堆疊
             ForEach(0..<4, id: \.self) { idx in
-                TrapezoidSegment()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.25, green: 0.85, blue: 0.82),
-                                Color(red: 0.05, green: 0.45, blue: 0.68)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .frame(width: CGFloat(16 + idx), height: 7.5)
-                    .overlay(
-                        TrapezoidSegment()
-                            .stroke(Color.white.opacity(0.55), lineWidth: 0.6)
-                    )
+                taipei101Segment(index: idx)
             }
 
             // 底座群樓
@@ -350,15 +344,49 @@ struct Landmark3DExtrudedPinView: View {
                         .stroke(Color.white.opacity(0.5), lineWidth: 0.7)
                 )
         }
-        .shadow(color: Color.cyan.opacity(isSelected ? 0.55 : 0.25), radius: 8, y: 4)
+        .shadow(color: towerShadow, radius: 8, y: 4)
+    }
+
+    private func taipei101Segment(index idx: Int) -> some View {
+        let segGradient = LinearGradient(
+            colors: [
+                Color(red: 0.25, green: 0.85, blue: 0.82),
+                Color(red: 0.05, green: 0.45, blue: 0.68)
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+        let segWidth = CGFloat(16 + idx)
+        return TrapezoidSegment()
+            .fill(segGradient)
+            .frame(width: segWidth, height: 7.5)
+            .overlay(
+                TrapezoidSegment()
+                    .stroke(Color.white.opacity(0.55), lineWidth: 0.6)
+            )
     }
 
     /// 立體 3D 浮空圖騰地標底座
     private var isometricPedestalModel: some View {
-        ZStack {
+        let ellipseColor: Color = place.category.accentColor.opacity(isSelected ? 0.4 : 0.22)
+        let cubeSize: CGFloat = isSelected ? 36 : 30
+        let iconSize: CGFloat = isSelected ? 16 : 13
+        let symbolName: String = place.favoriteSlot?.badgeSymbol ?? place.category.symbolName
+        let pedestalGradient = LinearGradient(
+            colors: place.category.gradientColors,
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        let stemGradient = LinearGradient(
+            colors: [place.category.accentColor, place.category.accentColor.opacity(0.1)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+
+        return ZStack {
             // 底座發光環
             Ellipse()
-                .fill(place.category.accentColor.opacity(isSelected ? 0.4 : 0.22))
+                .fill(ellipseColor)
                 .frame(width: 34, height: 14)
                 .offset(y: 14)
 
@@ -366,37 +394,25 @@ struct Landmark3DExtrudedPinView: View {
             VStack(spacing: 0) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: place.category.gradientColors,
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: isSelected ? 36 : 30, height: isSelected ? 36 : 30)
+                        .fill(pedestalGradient)
+                        .frame(width: cubeSize, height: cubeSize)
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .strokeBorder(.white.opacity(0.85), lineWidth: 1.5)
+                                .strokeBorder(Color.white.opacity(0.85), lineWidth: 1.5)
                         )
                         .rotation3DEffect(.degrees(18), axis: (x: 1, y: 0, z: 0))
 
-                    Image(systemName: place.favoriteSlot?.badgeSymbol ?? place.category.symbolName)
-                        .font(.system(size: isSelected ? 16 : 13, weight: .bold))
-                        .foregroundStyle(.white)
+                    Image(systemName: symbolName)
+                        .font(.system(size: iconSize, weight: .bold))
+                        .foregroundStyle(Color.white)
                 }
 
                 Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [place.category.accentColor, place.category.accentColor.opacity(0.1)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
+                    .fill(stemGradient)
                     .frame(width: 3, height: 10)
             }
         }
-        .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+        .shadow(color: Color.black.opacity(0.25), radius: 6, y: 3)
     }
 }
 
@@ -418,36 +434,39 @@ struct LaneGuidanceStripView: View {
     let maneuverType: ManeuverType
 
     var body: some View {
-        let lanes = maneuverType.laneGuidanceItems
+        let lanes: [LaneItem] = maneuverType.laneGuidanceItems
+        let containerShape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+
         HStack(spacing: 8) {
             ForEach(lanes) { lane in
-                Image(systemName: lane.direction.symbolName)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(lane.isRecommended ? Color.white : Color.white.opacity(0.32))
-                    .frame(width: 32, height: 30)
-                    .background(
-                        lane.isRecommended
-                        ? AppleMapsTheme.navGreen.opacity(0.92)
-                        : Color.white.opacity(0.08),
-                        in: RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .strokeBorder(
-                                lane.isRecommended ? Color.white.opacity(0.55) : Color.clear,
-                                lineWidth: 0.8
-                            )
-                    )
+                laneBadgeView(for: lane)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(Color.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.black.opacity(0.82), in: containerShape)
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            containerShape
                 .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.7)
         )
-        .shadow(color: .black.opacity(0.28), radius: 10, y: 4)
+        .shadow(color: Color.black.opacity(0.28), radius: 10, y: 4)
+    }
+
+    private func laneBadgeView(for lane: LaneItem) -> some View {
+        let fgColor: Color = lane.isRecommended ? Color.white : Color.white.opacity(0.32)
+        let bgColor: Color = lane.isRecommended ? AppleMapsTheme.navGreen.opacity(0.92) : Color.white.opacity(0.08)
+        let borderColor: Color = lane.isRecommended ? Color.white.opacity(0.55) : Color.clear
+        let badgeShape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+
+        return Image(systemName: lane.direction.symbolName)
+            .font(.system(size: 16, weight: .bold))
+            .foregroundStyle(fgColor)
+            .frame(width: 32, height: 30)
+            .background(bgColor, in: badgeShape)
+            .overlay(
+                badgeShape
+                    .strokeBorder(borderColor, lineWidth: 0.8)
+            )
     }
 }
 
@@ -461,110 +480,123 @@ struct Junction3DCrossroadView: View {
     @State private var glowOffset: CGFloat = 0
 
     var body: some View {
+        let cardShape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+
         ZStack(alignment: .top) {
-            // 天際線背景
-            LinearGradient(
-                colors: [
-                    Color(red: 0.08, green: 0.14, blue: 0.28),
-                    Color(red: 0.15, green: 0.24, blue: 0.42),
-                    Color(red: 0.12, green: 0.14, blue: 0.19)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-
-            // 遠景地平線建築群剪影
-            HStack(alignment: .bottom, spacing: 6) {
-                buildingBlock(w: 22, h: 48)
-                buildingBlock(w: 18, h: 72)
-                buildingBlock(w: 26, h: 56)
-                Spacer()
-                buildingBlock(w: 24, h: 64)
-                buildingBlock(w: 20, h: 82)
-                buildingBlock(w: 28, h: 44)
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 26)
-            .opacity(0.85)
-
-            // 3D 透視柏油道路與分隔線
-            PerspectiveRoadSurface()
-                .fill(
-                    LinearGradient(
-                        colors: [Color(white: 0.26), Color(white: 0.16)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .padding(.top, 56)
-
-            // 路邊白色護欄線
-            PerspectiveRoadSurface()
-                .stroke(Color.white.opacity(0.55), lineWidth: 2)
-                .padding(.top, 56)
-
-            // 透視車道虛線
-            VStack(spacing: 8) {
-                ForEach(0..<4, id: \.self) { idx in
-                    Capsule()
-                        .fill(Color.white.opacity(0.65))
-                        .frame(width: CGFloat(2 + idx), height: CGFloat(7 + idx * 3))
-                }
-            }
-            .padding(.top, 64)
-
-            // 3D 動態發光指引箭頭
-            Image(systemName: step.maneuverType.symbolName)
-                .font(.system(size: 52, weight: .black))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [Color(red: 0.35, green: 1.0, blue: 0.72), AppleMapsTheme.navBlue],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .shadow(color: Color.cyan.opacity(0.75), radius: 10)
-                .rotation3DEffect(.degrees(44), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
-                .offset(y: 74 + glowOffset)
-
-            // 頂部道路標籤與進度條
-            VStack(spacing: 6) {
-                HStack {
-                    Label("3D 路口實景引導", systemImage: "view.3d")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.cyan)
-                    Spacer()
-                    Text(RouteFormatting.formatDistance(meters: distanceMeters))
-                        .font(.caption.weight(.heavy))
-                        .foregroundStyle(.white)
-                        .monospacedDigit()
-
-                    Button(action: onToggleClose) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.white.opacity(0.75))
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                ProgressView(value: max(0, min(1, 1.0 - (distanceMeters / 180.0))))
-                    .tint(Color(red: 0.35, green: 1.0, blue: 0.72))
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
+            skylineGradientLayer
+            horizonBuildingsLayer
+            roadSurfaceLayer
+            dashedLaneDividerLayer
+            floatingDirectionArrowLayer
+            headerOverlayBar
         }
         .frame(height: 158)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(cardShape)
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            cardShape
                 .strokeBorder(Color.cyan.opacity(0.42), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+        .shadow(color: Color.black.opacity(0.35), radius: 14, y: 6)
         .onAppear {
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
                 glowOffset = -6
             }
         }
+    }
+
+    private var skylineGradientLayer: some View {
+        LinearGradient(
+            colors: [
+                Color(red: 0.08, green: 0.14, blue: 0.28),
+                Color(red: 0.15, green: 0.24, blue: 0.42),
+                Color(red: 0.12, green: 0.14, blue: 0.19)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private var horizonBuildingsLayer: some View {
+        HStack(alignment: .bottom, spacing: 6) {
+            buildingBlock(w: 22, h: 48)
+            buildingBlock(w: 18, h: 72)
+            buildingBlock(w: 26, h: 56)
+            Spacer()
+            buildingBlock(w: 24, h: 64)
+            buildingBlock(w: 20, h: 82)
+            buildingBlock(w: 28, h: 44)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 26)
+        .opacity(0.85)
+    }
+
+    private var roadSurfaceLayer: some View {
+        let roadGradient = LinearGradient(
+            colors: [Color(white: 0.26), Color(white: 0.16)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        return ZStack {
+            PerspectiveRoadSurface()
+                .fill(roadGradient)
+            PerspectiveRoadSurface()
+                .stroke(Color.white.opacity(0.55), lineWidth: 2)
+        }
+        .padding(.top, 56)
+    }
+
+    private var dashedLaneDividerLayer: some View {
+        VStack(spacing: 8) {
+            ForEach(0..<4, id: \.self) { idx in
+                Capsule()
+                    .fill(Color.white.opacity(0.65))
+                    .frame(width: CGFloat(2 + idx), height: CGFloat(7 + idx * 3))
+            }
+        }
+        .padding(.top, 64)
+    }
+
+    private var floatingDirectionArrowLayer: some View {
+        let arrowGradient = LinearGradient(
+            colors: [Color(red: 0.35, green: 1.0, blue: 0.72), AppleMapsTheme.navBlue],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        return Image(systemName: step.maneuverType.symbolName)
+            .font(.system(size: 52, weight: .black))
+            .foregroundStyle(arrowGradient)
+            .shadow(color: Color.cyan.opacity(0.75), radius: 10)
+            .rotation3DEffect(.degrees(44), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
+            .offset(y: 74 + glowOffset)
+    }
+
+    private var headerOverlayBar: some View {
+        let progress = max(0, min(1, 1.0 - (distanceMeters / 180.0)))
+        return VStack(spacing: 6) {
+            HStack {
+                Label("3D 路口實景引導", systemImage: "view.3d")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(Color.cyan)
+                Spacer()
+                Text(RouteFormatting.formatDistance(meters: distanceMeters))
+                    .font(.caption.weight(.heavy))
+                    .foregroundStyle(Color.white)
+                    .monospacedDigit()
+
+                Button(action: onToggleClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Color.white.opacity(0.75))
+                }
+                .buttonStyle(.plain)
+            }
+
+            ProgressView(value: progress)
+                .tint(Color(red: 0.35, green: 1.0, blue: 0.72))
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
     }
 
     private func buildingBlock(w: CGFloat, h: CGFloat) -> some View {
@@ -605,15 +637,9 @@ struct TrafficLightCountdownPillView: View {
     var body: some View {
         HStack(spacing: 8) {
             VStack(spacing: 3) {
-                Circle()
-                    .fill(phase == .red ? Color.red : Color.red.opacity(0.22))
-                    .frame(width: 8, height: 8)
-                Circle()
-                    .fill(phase == .yellow ? Color.yellow : Color.yellow.opacity(0.22))
-                    .frame(width: 8, height: 8)
-                Circle()
-                    .fill(phase == .green ? Color.green : Color.green.opacity(0.22))
-                    .frame(width: 8, height: 8)
+                signalBulb(isActive: phase == .red, color: Color.red)
+                signalBulb(isActive: phase == .yellow, color: Color.yellow)
+                signalBulb(isActive: phase == .green, color: Color.green)
             }
             .padding(.vertical, 4)
             .padding(.horizontal, 4)
@@ -625,13 +651,20 @@ struct TrafficLightCountdownPillView: View {
                     .foregroundStyle(phaseColor)
                 Text("\(seconds)s")
                     .font(.system(size: 16, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Color.primary)
                     .monospacedDigit()
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .appleMapsGlassCard(cornerRadius: 16)
+    }
+
+    private func signalBulb(isActive: Bool, color: Color) -> some View {
+        let bulbColor: Color = isActive ? color : color.opacity(0.22)
+        return Circle()
+            .fill(bulbColor)
+            .frame(width: 8, height: 8)
     }
 
     private var phaseColor: Color {
@@ -649,43 +682,54 @@ struct SpeedLimitSignView: View {
     let isOverSpeed: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
-            // 紅框白底速限圓牌
-            ZStack {
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 38, height: 38)
-                Circle()
-                    .strokeBorder(Color.red, lineWidth: 4)
-                    .frame(width: 38, height: 38)
-                Text("\(speedLimitKMH)")
-                    .font(.system(size: 15, weight: .black, design: .rounded))
-                    .foregroundStyle(.black)
-                    .monospacedDigit()
-            }
+        let bgStyle: AnyShapeStyle = isOverSpeed ? AnyShapeStyle(Color.red.opacity(0.18)) : AnyShapeStyle(.ultraThinMaterial)
+        let borderColor: Color = isOverSpeed ? Color.red : Color.white.opacity(0.35)
+        let borderWidth: CGFloat = isOverSpeed ? 1.5 : 0.8
+        let cardShape = RoundedRectangle(cornerRadius: 16, style: .continuous)
 
-            // 數位時速顯示
-            VStack(alignment: .leading, spacing: 0) {
-                Text("\(Int(currentSpeedKMH.rounded()))")
-                    .font(.system(size: 18, weight: .heavy, design: .rounded))
-                    .foregroundStyle(isOverSpeed ? Color.red : Color.primary)
-                    .monospacedDigit()
-                Text("km/h")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(isOverSpeed ? Color.red : .secondary)
-            }
+        HStack(spacing: 8) {
+            speedLimitRoundel
+            digitalSpeedReadout
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(
-            isOverSpeed ? AnyShapeStyle(Color.red.opacity(0.18)) : AnyShapeStyle(.ultraThinMaterial),
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-        )
+        .background(bgStyle, in: cardShape)
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(isOverSpeed ? Color.red : Color.white.opacity(0.35), lineWidth: isOverSpeed ? 1.5 : 0.8)
+            cardShape
+                .strokeBorder(borderColor, lineWidth: borderWidth)
         )
-        .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+        .shadow(color: Color.black.opacity(0.18), radius: 10, y: 4)
+    }
+
+    private var speedLimitRoundel: some View {
+        ZStack {
+            Circle()
+                .fill(Color.white)
+                .frame(width: 38, height: 38)
+            Circle()
+                .strokeBorder(Color.red, lineWidth: 4)
+                .frame(width: 38, height: 38)
+            Text("\(speedLimitKMH)")
+                .font(.system(size: 15, weight: .black, design: .rounded))
+                .foregroundStyle(Color.black)
+                .monospacedDigit()
+        }
+    }
+
+    private var digitalSpeedReadout: some View {
+        let speedColor: Color = isOverSpeed ? Color.red : Color.primary
+        let unitColor: Color = isOverSpeed ? Color.red : Color.secondary
+        let speedValue = Int(currentSpeedKMH.rounded())
+
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("\(speedValue)")
+                .font(.system(size: 18, weight: .heavy, design: .rounded))
+                .foregroundStyle(speedColor)
+                .monospacedDigit()
+            Text("km/h")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(unitColor)
+        }
     }
 }
 

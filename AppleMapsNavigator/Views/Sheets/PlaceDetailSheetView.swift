@@ -83,7 +83,7 @@ struct PlaceDetailSheetView: View {
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 26))
-                    .foregroundStyle(.secondary.opacity(0.75))
+                    .foregroundStyle(Color.secondary.opacity(0.75))
             }
             .buttonStyle(.plain)
         }
@@ -119,13 +119,14 @@ struct PlaceDetailSheetView: View {
                 viewModel.toggleFavorite(place)
             } label: {
                 let saved = viewModel.isFavorite(place)
+                let favColor: Color = saved ? Color.pink : Color.primary
                 HStack(spacing: 6) {
                     Image(systemName: saved ? "heart.fill" : "heart")
                         .font(.system(size: 16, weight: .semibold))
                     Text(saved ? "已收藏" : "收藏")
                         .font(.subheadline.weight(.semibold))
                 }
-                .foregroundStyle(saved ? .pink : .primary)
+                .foregroundStyle(favColor)
                 .frame(width: 112)
                 .padding(.vertical, 17)
                 .background(Color(.secondarySystemGroupedBackground).opacity(0.9), in: RoundedRectangle(cornerRadius: 15, style: .continuous))

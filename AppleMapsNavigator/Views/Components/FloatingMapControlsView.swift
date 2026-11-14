@@ -68,9 +68,10 @@ struct FloatingMapControlsView: View {
                 Button {
                     viewModel.toggle3DPitch()
                 } label: {
+                    let pitchColor: Color = viewModel.is3DPitchEnabled ? AppleMapsTheme.navBlue : Color.secondary
                     Text(viewModel.is3DPitchEnabled ? "3D" : "2D")
                         .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(viewModel.is3DPitchEnabled ? AppleMapsTheme.navBlue : .secondary)
+                        .foregroundStyle(pitchColor)
                         .frame(width: 44, height: 44)
                 }
 
@@ -93,9 +94,10 @@ struct FloatingMapControlsView: View {
                 Button {
                     viewModel.voiceService.isMuted.toggle()
                 } label: {
+                    let muteColor: Color = viewModel.voiceService.isMuted ? Color.red : Color.primary
                     Image(systemName: viewModel.voiceService.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(viewModel.voiceService.isMuted ? .red : .primary)
+                        .foregroundStyle(muteColor)
                         .frame(width: 44, height: 44)
                 }
                 .appleMapsGlassCard(cornerRadius: 14)

@@ -148,48 +148,64 @@ struct PlaceAnnotationPinView: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            ZStack {
-                if isSelected {
-                    Circle()
-                        .fill(place.category.accentColor.opacity(0.28))
-                        .frame(width: 52, height: 52)
-                }
-
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: place.category.gradientColors,
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: isSelected ? 40 : 32, height: isSelected ? 40 : 32)
-                    .overlay(
-                        Circle()
-                            .strokeBorder(.white, lineWidth: isSelected ? 2.5 : 1.8)
-                    )
-                    .shadow(color: Color.black.opacity(0.25), radius: isSelected ? 8 : 4, y: 3)
-
-                Image(systemName: place.favoriteSlot?.badgeSymbol ?? place.category.symbolName)
-                    .font(.system(size: isSelected ? 17 : 13, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            .scaleEffect(isSelected ? 1.08 : 1.0)
-
-            Text(place.name)
-                .font(.system(size: isSelected ? 12 : 11, weight: isSelected ? .bold : .semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(
-                    Capsule()
-                        .strokeBorder(Color.white.opacity(0.35), lineWidth: 0.5)
-                )
-                .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+            pinCircleView
+            pinTitleCapsule
         }
         .animation(.spring(response: 0.34, dampingFraction: 0.72), value: isSelected)
+    }
+
+    private var pinCircleView: some View {
+        let circleSize: CGFloat = isSelected ? 40 : 32
+        let strokeWidth: CGFloat = isSelected ? 2.5 : 1.8
+        let shadowRadius: CGFloat = isSelected ? 8 : 4
+        let iconSize: CGFloat = isSelected ? 17 : 13
+        let scaleFactor: CGFloat = isSelected ? 1.08 : 1.0
+        let symbolName: String = place.favoriteSlot?.badgeSymbol ?? place.category.symbolName
+        let grad = LinearGradient(
+            colors: place.category.gradientColors,
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+
+        return ZStack {
+            if isSelected {
+                Circle()
+                    .fill(place.category.accentColor.opacity(0.28))
+                    .frame(width: 52, height: 52)
+            }
+
+            Circle()
+                .fill(grad)
+                .frame(width: circleSize, height: circleSize)
+                .overlay(
+                    Circle()
+                        .strokeBorder(Color.white, lineWidth: strokeWidth)
+                )
+                .shadow(color: Color.black.opacity(0.25), radius: shadowRadius, y: 3)
+
+            Image(systemName: symbolName)
+                .font(.system(size: iconSize, weight: .semibold))
+                .foregroundStyle(Color.white)
+        }
+        .scaleEffect(scaleFactor)
+    }
+
+    private var pinTitleCapsule: some View {
+        let fontSize: CGFloat = isSelected ? 12 : 11
+        let fontWeight: Font.Weight = isSelected ? .bold : .semibold
+
+        return Text(place.name)
+            .font(.system(size: fontSize, weight: fontWeight))
+            .foregroundStyle(Color.primary)
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(
+                Capsule()
+                    .strokeBorder(Color.white.opacity(0.35), lineWidth: 0.5)
+            )
+            .shadow(color: Color.black.opacity(0.15), radius: 3, y: 1)
     }
 }
 

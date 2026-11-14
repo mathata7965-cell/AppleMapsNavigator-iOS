@@ -93,36 +93,42 @@ struct ExploreSearchSheetView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(PlaceCategory.allCases) { category in
-                    let isActive = viewModel.selectedCategory == category
-                    Button {
-                        viewModel.selectCategory(category)
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: category.symbolName)
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(isActive ? .white : category.accentColor)
-                            Text(category.title)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(isActive ? .white : .primary)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            isActive
-                            ? AnyShapeStyle(category.accentColor)
-                            : AnyShapeStyle(Color(.secondarySystemGroupedBackground).opacity(0.9)),
-                            in: Capsule()
-                        )
-                        .overlay(
-                            Capsule()
-                                .strokeBorder(isActive ? Color.white.opacity(0.35) : Color.primary.opacity(0.06), lineWidth: 0.8)
-                        )
-                    }
-                    .buttonStyle(.plain)
+                    categoryPillButton(for: category)
                 }
             }
             .padding(.horizontal, 16)
         }
+    }
+
+    private func categoryPillButton(for category: PlaceCategory) -> some View {
+        let isActive = viewModel.selectedCategory == category
+        let iconColor: Color = isActive ? Color.white : category.accentColor
+        let textColor: Color = isActive ? Color.white : Color.primary
+        let bgStyle: AnyShapeStyle = isActive
+            ? AnyShapeStyle(category.accentColor)
+            : AnyShapeStyle(Color(.secondarySystemGroupedBackground).opacity(0.9))
+        let borderColor: Color = isActive ? Color.white.opacity(0.35) : Color.primary.opacity(0.06)
+
+        return Button {
+            viewModel.selectCategory(category)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: category.symbolName)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(iconColor)
+                Text(category.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(textColor)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(bgStyle, in: Capsule())
+            .overlay(
+                Capsule()
+                    .strokeBorder(borderColor, lineWidth: 0.8)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 常用地點收藏區
@@ -141,39 +147,47 @@ struct ExploreSearchSheetView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(viewModel.favorites) { place in
-                        Button {
-                            viewModel.selectPlace(place)
-                        } label: {
-                            VStack(spacing: 8) {
-                                ZStack {
-                                    Circle()
-                                        .fill((place.favoriteSlot?.badgeColor ?? place.category.accentColor).opacity(0.16))
-                                        .frame(width: 52, height: 52)
-
-                                    Image(systemName: place.favoriteSlot?.badgeSymbol ?? place.category.symbolName)
-                                        .font(.system(size: 20, weight: .semibold))
-                                        .foregroundStyle(place.favoriteSlot?.badgeColor ?? place.category.accentColor)
-                                }
-
-                                Text(place.name)
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(1)
-
-                                Text(place.formattedDistance(from: viewModel.locationManager.effectiveCoordinate))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(width: 82)
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 6)
-                            .background(Color(.secondarySystemGroupedBackground).opacity(0.75), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
+                        favoritePlaceItem(for: place)
                     }
                 }
             }
         }
+    }
+
+    private func favoritePlaceItem(for place: PlaceItem) -> some View {
+        let tintColor: Color = place.favoriteSlot?.badgeColor ?? place.category.accentColor
+        let symbolName: String = place.favoriteSlot?.badgeSymbol ?? place.category.symbolName
+        let distText: String = place.formattedDistance(from: viewModel.locationManager.effectiveCoordinate)
+
+        return Button {
+            viewModel.selectPlace(place)
+        } label: {
+            VStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(tintColor.opacity(0.16))
+                        .frame(width: 52, height: 52)
+
+                    Image(systemName: symbolName)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(tintColor)
+                }
+
+                Text(place.name)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.primary)
+                    .lineLimit(1)
+
+                Text(distText)
+                    .font(.caption2)
+                    .foregroundStyle(Color.secondary)
+            }
+            .frame(width: 82)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 6)
+            .background(Color(.secondarySystemGroupedBackground).opacity(0.75), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 近期搜尋

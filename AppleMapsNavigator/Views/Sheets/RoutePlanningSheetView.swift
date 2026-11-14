@@ -51,7 +51,7 @@ struct RoutePlanningSheetView: View {
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 26))
-                    .foregroundStyle(.secondary.opacity(0.75))
+                    .foregroundStyle(Color.secondary.opacity(0.75))
             }
             .buttonStyle(.plain)
         }
@@ -159,43 +159,47 @@ struct RoutePlanningSheetView: View {
     private var transportModeSelector: some View {
         HStack(spacing: 8) {
             ForEach(TransportMode.allCases) { mode in
-                let isSelected = viewModel.selectedTransportMode == mode
-                let summary = viewModel.modeComparisonSummaries[mode]
-
-                Button {
-                    viewModel.switchTransportMode(mode)
-                } label: {
-                    VStack(spacing: 4) {
-                        HStack(spacing: 5) {
-                            Image(systemName: mode.symbolName)
-                                .font(.system(size: 14, weight: .semibold))
-                            Text(mode.title)
-                                .font(.subheadline.weight(.semibold))
-                        }
-
-                        if let summary {
-                            Text(summary.formattedDuration)
-                                .font(.caption2.weight(.medium))
-                                .opacity(isSelected ? 0.92 : 0.75)
-                        } else {
-                            Text(viewModel.isCalculatingRoutes ? "計算中" : "--")
-                                .font(.caption2)
-                                .opacity(0.65)
-                        }
-                    }
-                    .foregroundStyle(isSelected ? .white : .primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(
-                        isSelected
-                        ? AnyShapeStyle(AppleMapsTheme.navBlue)
-                        : AnyShapeStyle(Color(.secondarySystemGroupedBackground).opacity(0.82)),
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    )
-                }
-                .buttonStyle(.plain)
+                transportModeButton(for: mode)
             }
         }
+    }
+
+    private func transportModeButton(for mode: TransportMode) -> some View {
+        let isSelected = viewModel.selectedTransportMode == mode
+        let summary = viewModel.modeComparisonSummaries[mode]
+        let fgColor: Color = isSelected ? Color.white : Color.primary
+        let bgStyle: AnyShapeStyle = isSelected
+            ? AnyShapeStyle(AppleMapsTheme.navBlue)
+            : AnyShapeStyle(Color(.secondarySystemGroupedBackground).opacity(0.82))
+        let durOpacity: Double = isSelected ? 0.92 : 0.75
+
+        return Button {
+            viewModel.switchTransportMode(mode)
+        } label: {
+            VStack(spacing: 4) {
+                HStack(spacing: 5) {
+                    Image(systemName: mode.symbolName)
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(mode.title)
+                        .font(.subheadline.weight(.semibold))
+                }
+
+                if let summary {
+                    Text(summary.formattedDuration)
+                        .font(.caption2.weight(.medium))
+                        .opacity(durOpacity)
+                } else {
+                    Text(viewModel.isCalculatingRoutes ? "計算中" : "--")
+                        .font(.caption2)
+                        .opacity(0.65)
+                }
+            }
+            .foregroundStyle(fgColor)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(bgStyle, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 路線方案比較列表
@@ -207,7 +211,7 @@ struct RoutePlanningSheetView: View {
                 ProgressView()
                 Text("正在透過 OSRM 計算最佳與替代路線...")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
@@ -215,78 +219,83 @@ struct RoutePlanningSheetView: View {
         } else if let error = viewModel.routeErrorMessage, viewModel.availableRoutes.isEmpty {
             Text(error)
                 .font(.subheadline)
-                .foregroundStyle(.red)
+                .foregroundStyle(Color.red)
                 .padding()
                 .frame(maxWidth: .infinity)
                 .background(Color(.secondarySystemGroupedBackground).opacity(0.8), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         } else {
             VStack(spacing: 10) {
                 ForEach(viewModel.availableRoutes) { route in
-                    let isSelected = viewModel.selectedRoute?.id == route.id
-
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 6) {
-                                Text(route.formattedDuration)
-                                    .font(.title3.weight(.bold))
-                                    .foregroundStyle(.primary)
-
-                                Text(route.summaryTitle)
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(route.isRecommended ? AppleMapsTheme.navGreen : .secondary)
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 2)
-                                    .background(
-                                        (route.isRecommended ? AppleMapsTheme.navGreen : Color.secondary).opacity(0.14),
-                                        in: Capsule()
-                                    )
-                            }
-
-                            Text("\(route.formattedDistance)・預計 \(route.estimatedArrivalTimeText) 抵達")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            Text("\(route.detailTag) (\(route.engineSource))")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-
-                        if isSelected {
-                            Button {
-                                viewModel.startTurnByTurnNavigation()
-                            } label: {
-                                Text("出發")
-                                    .font(.subheadline.weight(.bold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 12)
-                                    .background(AppleMapsTheme.navGreen, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                    .shadow(color: AppleMapsTheme.navGreen.opacity(0.35), radius: 8, y: 3)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            Text("選擇")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(AppleMapsTheme.navBlue)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(AppleMapsTheme.navBlue.opacity(0.12), in: Capsule())
-                        }
-                    }
-                    .padding(14)
-                    .background(Color(.secondarySystemGroupedBackground).opacity(isSelected ? 0.96 : 0.72), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(isSelected ? AppleMapsTheme.navBlue : Color.clear, lineWidth: 1.8)
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        viewModel.selectRouteOption(route)
-                    }
+                    routeOptionCard(for: route)
                 }
             }
+        }
+    }
+
+    private func routeOptionCard(for route: RouteOption) -> some View {
+        let isSelected = viewModel.selectedRoute?.id == route.id
+        let badgeColor: Color = route.isRecommended ? AppleMapsTheme.navGreen : Color.secondary
+        let bgOpacity: Double = isSelected ? 0.96 : 0.72
+        let borderColor: Color = isSelected ? AppleMapsTheme.navBlue : Color.clear
+        let cardShape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(route.formattedDuration)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(Color.primary)
+
+                    Text(route.summaryTitle)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(badgeColor)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(badgeColor.opacity(0.14), in: Capsule())
+                }
+
+                Text("\(route.formattedDistance)・預計 \(route.estimatedArrivalTimeText) 抵達")
+                    .font(.caption)
+                    .foregroundStyle(Color.secondary)
+
+                Text("\(route.detailTag) (\(route.engineSource))")
+                    .font(.caption2)
+                    .foregroundStyle(Color.secondary)
+            }
+
+            Spacer()
+
+            if isSelected {
+                Button {
+                    viewModel.startTurnByTurnNavigation()
+                } label: {
+                    Text("出發")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(Color.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .background(AppleMapsTheme.navGreen, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .shadow(color: AppleMapsTheme.navGreen.opacity(0.35), radius: 8, y: 3)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("選擇")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppleMapsTheme.navBlue)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(AppleMapsTheme.navBlue.opacity(0.12), in: Capsule())
+            }
+        }
+        .padding(14)
+        .background(Color(.secondarySystemGroupedBackground).opacity(bgOpacity), in: cardShape)
+        .overlay(
+            cardShape
+                .strokeBorder(borderColor, lineWidth: 1.8)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            viewModel.selectRouteOption(route)
         }
     }
 
