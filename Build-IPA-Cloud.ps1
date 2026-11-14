@@ -159,6 +159,24 @@ while ($TargetRun.status -ne "completed") {
 }
 
 if ($TargetRun.conclusion -ne "success") {
+    try {
+        $JobsRes = Invoke-RestMethod -Uri "$RepoUri/actions/runs/$($TargetRun.id)/jobs" -Headers $Headers -Method Get
+        foreach ($Job in $JobsRes.jobs) {
+            if ($Job.conclusion -ne "success") {
+                Write-Host "      Job [$($Job.name)] 失敗狀態：$($Job.conclusion)" -ForegroundColor Red
+                $AnnRes = Invoke-RestMethod -Uri "$($Job.check_run_url)/annotations" -Headers $Headers -Method Get
+                foreach ($Ann in $AnnRes) {
+                    if ($Ann.message) {
+                        Write-Host "      原因：$($Ann.message)" -ForegroundColor Yellow
+                    }
+                }
+                $FailedSteps = $Job.steps | Where-Object { $_.conclusion -eq "failure" }
+                foreach ($Step in $FailedSteps) {
+                    Write-Host "      失敗步驟：$($Step.name)" -ForegroundColor Yellow
+                }
+            }
+        }
+    } catch { }
     throw "雲端編譯失敗 ($($TargetRun.conclusion))。請開啟上方建置網址查看 Xcode 錯誤日誌：$($TargetRun.html_url)"
 }
 

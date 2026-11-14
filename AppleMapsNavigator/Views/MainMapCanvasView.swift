@@ -104,117 +104,15 @@ struct MainMapCanvasView: View {
 
     private var apple3DMapKitView: some View {
         Map(position: $viewModel.cameraPosition) {
-            // 使用者定位藍點
-            if viewModel.appMode != .navigating {
-                UserAnnotation()
+            userLocationContent
 
-                if viewModel.locationManager.isUsingSimulatedDefault {
-                    Annotation("我的位置", coordinate: viewModel.locationManager.effectiveCoordinate) {
-                        UserLocationPulseMarkerView()
-                    }
-                    .annotationTitles(.hidden)
-                }
-            }
-
-            // 路線繪製（規劃模式 vs 導航模式）
-            if viewModel.appMode == .navigating {
-                // 已走過的路段以霧面灰呈現
-                if viewModel.navigationEngine.traversedCoordinates.count >= 2 {
-                    MapPolyline(coordinates: viewModel.navigationEngine.traversedCoordinates)
-                        .stroke(
-                            Color.gray.opacity(0.48),
-                            style: StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round)
-                        )
-                }
-
-                // 剩餘路線雙層 Apple Maps Navigation Blue 描邊
-                if viewModel.navigationEngine.remainingCoordinates.count >= 2 {
-                    MapPolyline(coordinates: viewModel.navigationEngine.remainingCoordinates)
-                        .stroke(
-                            AppleMapsTheme.routeCasingBlue,
-                            style: StrokeStyle(lineWidth: 13, lineCap: .round, lineJoin: .round)
-                        )
-                    MapPolyline(coordinates: viewModel.navigationEngine.remainingCoordinates)
-                        .stroke(
-                            AppleMapsTheme.navBlue,
-                            style: StrokeStyle(lineWidth: 8.5, lineCap: .round, lineJoin: .round)
-                        )
-                }
-
-                // 目的地旗幟
-                if let dest = viewModel.destinationPlace {
-                    Annotation(dest.name, coordinate: dest.coordinate) {
-                        RouteEndpointBadgeView(isDestination: true, title: dest.name)
-                    }
-                    .annotationTitles(.hidden)
-                }
-
-                // 3D 導航箭頭車輛標記
-                Annotation("導航車輛", coordinate: viewModel.navigationEngine.currentCoordinate) {
-                    NavigationVehicleMarkerView(
-                        headingDegrees: viewModel.navigationEngine.currentHeading - viewModel.currentCameraHeading
-                    )
-                }
-                .annotationTitles(.hidden)
-
-            } else if viewModel.appMode == .routePlanning {
-                // 替代路線（半透明淡藍）
-                ForEach(viewModel.availableRoutes.filter { $0.id != viewModel.selectedRoute?.id }) { altRoute in
-                    if altRoute.coordinates.count >= 2 {
-                        MapPolyline(coordinates: altRoute.coordinates)
-                            .stroke(
-                                AppleMapsTheme.routeAlternative.opacity(0.45),
-                                style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round)
-                            )
-                    }
-                }
-
-                // 主要選中路線（雙層深藍外框 + iOS 導航藍）
-                if let selected = viewModel.selectedRoute, selected.coordinates.count >= 2 {
-                    MapPolyline(coordinates: selected.coordinates)
-                        .stroke(
-                            AppleMapsTheme.routeCasingBlue,
-                            style: StrokeStyle(lineWidth: 12, lineCap: .round, lineJoin: .round)
-                        )
-                    MapPolyline(coordinates: selected.coordinates)
-                        .stroke(
-                            AppleMapsTheme.navBlue,
-                            style: StrokeStyle(lineWidth: 7.5, lineCap: .round, lineJoin: .round)
-                        )
-                }
-
-                // 起點與終點徽章
-                Annotation(viewModel.originPlace.name, coordinate: viewModel.originPlace.coordinate) {
-                    RouteEndpointBadgeView(isDestination: false, title: viewModel.originPlace.name)
-                }
-                .annotationTitles(.hidden)
-
-                if let dest = viewModel.destinationPlace {
-                    Annotation(dest.name, coordinate: dest.coordinate) {
-                        RouteEndpointBadgeView(isDestination: true, title: dest.name)
-                    }
-                    .annotationTitles(.hidden)
-                }
-            } else {
-                // 探索 / 詳情模式 POI 地標圖釘
-                ForEach(viewModel.displayedMapPlaces) { place in
-                    let isSelected: Bool = {
-                        if case .placeDetail(let active) = viewModel.appMode {
-                            return active.id == place.id
-                        }
-                        return false
-                    }()
-
-                    Annotation(place.name, coordinate: place.coordinate) {
-                        Button {
-                            viewModel.selectPlace(place)
-                        } label: {
-                            PlaceAnnotationPinView(place: place, isSelected: isSelected)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .annotationTitles(.hidden)
-                }
+            switch viewModel.appMode {
+            case .navigating:
+                navigatingMapContent
+            case .routePlanning:
+                routePlanningMapContent
+            case .explore, .placeDetail:
+                exploreMapContent
             }
         }
         .mapStyle(viewModel.mapDisplayStyle.mapKitStyle)
@@ -226,6 +124,128 @@ struct MainMapCanvasView: View {
             viewModel.currentCameraHeading = context.camera.heading
             viewModel.currentCameraDistance = context.camera.distance
         }
+    }
+
+    @MapContentBuilder
+    private var userLocationContent: some MapContent {
+        if viewModel.appMode != .navigating {
+            UserAnnotation()
+
+            if viewModel.locationManager.isUsingSimulatedDefault {
+                Annotation("我的位置", coordinate: viewModel.locationManager.effectiveCoordinate) {
+                    UserLocationPulseMarkerView()
+                }
+                .annotationTitles(.hidden)
+            }
+        }
+    }
+
+    @MapContentBuilder
+    private var navigatingMapContent: some MapContent {
+        // 已走過的路段以霧面灰呈現
+        if viewModel.navigationEngine.traversedCoordinates.count >= 2 {
+            MapPolyline(coordinates: viewModel.navigationEngine.traversedCoordinates)
+                .stroke(
+                    Color.gray.opacity(0.48),
+                    style: StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round)
+                )
+        }
+
+        // 剩餘路線雙層 Apple Maps Navigation Blue 描邊
+        if viewModel.navigationEngine.remainingCoordinates.count >= 2 {
+            MapPolyline(coordinates: viewModel.navigationEngine.remainingCoordinates)
+                .stroke(
+                    AppleMapsTheme.routeCasingBlue,
+                    style: StrokeStyle(lineWidth: 13, lineCap: .round, lineJoin: .round)
+                )
+            MapPolyline(coordinates: viewModel.navigationEngine.remainingCoordinates)
+                .stroke(
+                    AppleMapsTheme.navBlue,
+                    style: StrokeStyle(lineWidth: 8.5, lineCap: .round, lineJoin: .round)
+                )
+        }
+
+        // 目的地旗幟
+        if let dest = viewModel.destinationPlace {
+            Annotation(dest.name, coordinate: dest.coordinate) {
+                RouteEndpointBadgeView(isDestination: true, title: dest.name)
+            }
+            .annotationTitles(.hidden)
+        }
+
+        // 3D 導航箭頭車輛標記
+        Annotation("導航車輛", coordinate: viewModel.navigationEngine.currentCoordinate) {
+            NavigationVehicleMarkerView(
+                headingDegrees: viewModel.navigationEngine.currentHeading - viewModel.currentCameraHeading
+            )
+        }
+        .annotationTitles(.hidden)
+    }
+
+    @MapContentBuilder
+    private var routePlanningMapContent: some MapContent {
+        let altRoutes = viewModel.availableRoutes.filter {
+            $0.id != viewModel.selectedRoute?.id && $0.coordinates.count >= 2
+        }
+
+        // 替代路線（半透明淡藍）
+        ForEach(altRoutes) { altRoute in
+            MapPolyline(coordinates: altRoute.coordinates)
+                .stroke(
+                    AppleMapsTheme.routeAlternative.opacity(0.45),
+                    style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round)
+                )
+        }
+
+        // 主要選中路線（雙層深藍外框 + iOS 導航藍）
+        if let selected = viewModel.selectedRoute, selected.coordinates.count >= 2 {
+            MapPolyline(coordinates: selected.coordinates)
+                .stroke(
+                    AppleMapsTheme.routeCasingBlue,
+                    style: StrokeStyle(lineWidth: 12, lineCap: .round, lineJoin: .round)
+                )
+            MapPolyline(coordinates: selected.coordinates)
+                .stroke(
+                    AppleMapsTheme.navBlue,
+                    style: StrokeStyle(lineWidth: 7.5, lineCap: .round, lineJoin: .round)
+                )
+        }
+
+        // 起點與終點徽章
+        Annotation(viewModel.originPlace.name, coordinate: viewModel.originPlace.coordinate) {
+            RouteEndpointBadgeView(isDestination: false, title: viewModel.originPlace.name)
+        }
+        .annotationTitles(.hidden)
+
+        if let dest = viewModel.destinationPlace {
+            Annotation(dest.name, coordinate: dest.coordinate) {
+                RouteEndpointBadgeView(isDestination: true, title: dest.name)
+            }
+            .annotationTitles(.hidden)
+        }
+    }
+
+    @MapContentBuilder
+    private var exploreMapContent: some MapContent {
+        ForEach(viewModel.displayedMapPlaces) { place in
+            let isSelected = isSelectedPlace(place)
+            Annotation(place.name, coordinate: place.coordinate) {
+                Button {
+                    viewModel.selectPlace(place)
+                } label: {
+                    PlaceAnnotationPinView(place: place, isSelected: isSelected)
+                }
+                .buttonStyle(.plain)
+            }
+            .annotationTitles(.hidden)
+        }
+    }
+
+    private func isSelectedPlace(_ place: PlaceItem) -> Bool {
+        if case .placeDetail(let active) = viewModel.appMode {
+            return active.id == place.id
+        }
+        return false
     }
 
     // MARK: - 頂部左上角狀態膠囊

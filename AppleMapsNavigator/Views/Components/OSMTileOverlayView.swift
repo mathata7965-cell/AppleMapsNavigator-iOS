@@ -46,15 +46,15 @@ struct OSMTileOverlayView: UIViewRepresentable {
 
         for altRoute in alternativeRoutes where altRoute.id != selectedRoute?.id {
             if altRoute.coordinates.count >= 2 {
-                let poly = TaggedPolyline(coordinates: altRoute.coordinates, count: altRoute.coordinates.count)
-                poly.isPrimary = false
+                let poly = MKPolyline(coordinates: altRoute.coordinates, count: altRoute.coordinates.count)
+                poly.title = "alt"
                 mapView.addOverlay(poly, level: .aboveRoads)
             }
         }
 
         if let selectedRoute, selectedRoute.coordinates.count >= 2 {
-            let poly = TaggedPolyline(coordinates: selectedRoute.coordinates, count: selectedRoute.coordinates.count)
-            poly.isPrimary = true
+            let poly = MKPolyline(coordinates: selectedRoute.coordinates, count: selectedRoute.coordinates.count)
+            poly.title = "primary"
             mapView.addOverlay(poly, level: .aboveRoads)
         }
 
@@ -99,12 +99,13 @@ struct OSMTileOverlayView: UIViewRepresentable {
             if let tileOverlay = overlay as? MKTileOverlay {
                 return MKTileOverlayRenderer(tileOverlay: tileOverlay)
             }
-            if let polyline = overlay as? TaggedPolyline {
+            if let polyline = overlay as? MKPolyline {
+                let isPrimary = polyline.title != "alt"
                 let renderer = MKPolylineRenderer(polyline: polyline)
-                renderer.strokeColor = polyline.isPrimary
+                renderer.strokeColor = isPrimary
                     ? UIColor(red: 0.0, green: 0.478, blue: 1.0, alpha: 1.0)
                     : UIColor.systemBlue.withAlphaComponent(0.35)
-                renderer.lineWidth = polyline.isPrimary ? 7 : 5
+                renderer.lineWidth = isPrimary ? 7 : 5
                 renderer.lineCap = .round
                 renderer.lineJoin = .round
                 return renderer
@@ -117,8 +118,4 @@ struct OSMTileOverlayView: UIViewRepresentable {
             onSelectPlace(place)
         }
     }
-}
-
-private final class TaggedPolyline: MKPolyline {
-    var isPrimary: Bool = true
 }

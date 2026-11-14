@@ -3,7 +3,7 @@ import SwiftUI
 import CoreLocation
 
 /// 地點分類（對應 iOS 地圖快選膠囊與 OpenStreetMap / MapKit 搜尋標籤）
-enum PlaceCategory: String, CaseIterable, Identifiable, Codable, Hashable {
+enum PlaceCategory: String, CaseIterable, Identifiable, Codable, Hashable, Sendable {
     case restaurant
     case cafe
     case gasStation
@@ -74,7 +74,7 @@ enum PlaceCategory: String, CaseIterable, Identifiable, Codable, Hashable {
 }
 
 /// 常用收藏類型（住家、公司、自訂收藏）
-enum FavoriteSlot: String, Codable, Hashable {
+enum FavoriteSlot: String, Codable, Hashable, Sendable {
     case home
     case work
     case custom
@@ -97,7 +97,7 @@ enum FavoriteSlot: String, Codable, Hashable {
 }
 
 /// 地點資料模型
-struct PlaceItem: Identifiable, Codable, Hashable {
+struct PlaceItem: Identifiable, Codable, Hashable, Sendable {
     let id: UUID
     var name: String
     var subtitle: String

@@ -3,7 +3,7 @@ import MapKit
 import CoreLocation
 
 /// 雙引擎地點搜尋服務：OpenStreetMap Nominatim + Apple MKLocalSearch + 本地精選 POI
-actor PlaceSearchService {
+actor PlaceSearchService: Sendable {
     private let session: URLSession
 
     init(session: URLSession = .shared) {
@@ -194,7 +194,7 @@ actor PlaceSearchService {
         return item.displayName
     }
 
-    private func inferCategory(osmType: String?, osmCategory: String?, name: String) -> PlaceCategory {
+    private nonisolated func inferCategory(osmType: String?, osmCategory: String?, name: String) -> PlaceCategory {
         let joined = "\(osmType ?? "") \(osmCategory ?? "") \(name)".lowercased()
         if joined.contains("cafe") || joined.contains("coffee") || joined.contains("咖啡") {
             return .cafe
@@ -214,7 +214,7 @@ actor PlaceSearchService {
         return .attraction
     }
 
-    private func inferCategoryFromMK(_ mkCategory: MKPointOfInterestCategory?, name: String) -> PlaceCategory {
+    private nonisolated func inferCategoryFromMK(_ mkCategory: MKPointOfInterestCategory?, name: String) -> PlaceCategory {
         switch mkCategory {
         case .restaurant, .bakery: return .restaurant
         case .cafe: return .cafe

@@ -3,7 +3,7 @@ import MapKit
 import CoreLocation
 
 /// 交通方式（支援 OSRM 多模式與 MapKit 備援）
-enum TransportMode: String, CaseIterable, Identifiable, Codable, Hashable {
+enum TransportMode: String, CaseIterable, Identifiable, Codable, Hashable, Sendable {
     case driving
     case walking
     case cycling
@@ -63,7 +63,7 @@ enum TransportMode: String, CaseIterable, Identifiable, Codable, Hashable {
 }
 
 /// 轉彎指示類型
-enum ManeuverType: String, Codable, Hashable {
+enum ManeuverType: String, Codable, Hashable, Sendable {
     case straight
     case turnLeft
     case turnRight
@@ -110,7 +110,7 @@ enum ManeuverType: String, Codable, Hashable {
 }
 
 /// 單步導航指引
-struct RouteStep: Identifiable, Hashable {
+struct RouteStep: Identifiable, Hashable, @unchecked Sendable {
     let id: UUID
     let instruction: String
     let roadName: String
@@ -147,7 +147,7 @@ struct RouteStep: Identifiable, Hashable {
 }
 
 /// 完整規劃路線方案
-struct RouteOption: Identifiable, Hashable {
+struct RouteOption: Identifiable, Hashable, @unchecked Sendable {
     let id: UUID
     let summaryTitle: String
     let detailTag: String

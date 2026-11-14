@@ -10,14 +10,11 @@ on:
 jobs:
   build-ipa:
     name: Compile iOS App & Package Sideload IPA
-    runs-on: macos-14
+    runs-on: macos-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Select Xcode 15.4
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
 
       - name: Verify Xcode version
         run: xcodebuild -version

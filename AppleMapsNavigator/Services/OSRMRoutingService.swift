@@ -3,7 +3,7 @@ import MapKit
 import CoreLocation
 
 /// 路線規劃服務：優先使用開源 OSRM (Open Source Routing Machine)，並自動備援 MapKit 與離線幾何路線
-actor OSRMRoutingService {
+actor OSRMRoutingService: Sendable {
     private let session: URLSession
 
     init(session: URLSession = .shared) {
@@ -259,7 +259,7 @@ actor OSRMRoutingService {
         }
     }
 
-    private func inferManeuverFromText(_ text: String) -> ManeuverType {
+    private nonisolated func inferManeuverFromText(_ text: String) -> ManeuverType {
         let lower = text.lowercased()
         if lower.contains("左") || lower.contains("left") { return .turnLeft }
         if lower.contains("右") || lower.contains("right") { return .turnRight }
