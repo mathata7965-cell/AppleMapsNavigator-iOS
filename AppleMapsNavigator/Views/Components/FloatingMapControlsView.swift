@@ -23,10 +23,21 @@ struct FloatingMapControlsView: View {
 
             // 主要懸浮玻璃控制條
             VStack(spacing: 0) {
-                // 圖層切換選單（標準 3D / 衛星混合 / OSM 圖磚）
+                // 圖層切換選單（標準 3D / 衛星混合 / OSM 圖磚 + 3D 立體地標 + 3D 車標）
                 Menu {
                     Picker("地圖圖層", selection: $viewModel.mapDisplayStyle) {
                         ForEach(MapDisplayStyle.allCases) { style in
+                            Label(style.title, systemImage: style.symbolName)
+                                .tag(style)
+                        }
+                    }
+
+                    Divider()
+
+                    Toggle("3D 立體地標模型", isOn: $viewModel.show3DLandmarks)
+
+                    Picker("3D 車標座駕", selection: $viewModel.vehicleModelStyle) {
+                        ForEach(Vehicle3DModelStyle.allCases) { style in
                             Label(style.title, systemImage: style.symbolName)
                                 .tag(style)
                         }

@@ -24,6 +24,8 @@ final class MapNavigatorViewModel {
     var currentCameraHeading: CLLocationDirection = 0
     var currentCameraDistance: CLLocationDistance = 2600
     var is3DPitchEnabled: Bool = true
+    var show3DLandmarks: Bool = true
+    var vehicleModelStyle: Vehicle3DModelStyle = .cyberSportsCar
     var mapDisplayStyle: MapDisplayStyle = .appleStandard3D
     var themeMode: AppThemeMode = .system
 
@@ -44,6 +46,7 @@ final class MapNavigatorViewModel {
     // MARK: - 路線規劃狀態
 
     var originPlace: PlaceItem
+    var waypointPlace: PlaceItem?
     var destinationPlace: PlaceItem?
     var selectedTransportMode: TransportMode = .driving
     var availableRoutes: [RouteOption] = []
@@ -213,6 +216,7 @@ final class MapNavigatorViewModel {
             sheetDetent = .medium
             availableRoutes = []
             selectedRoute = nil
+            waypointPlace = nil
             destinationPlace = nil
             routeErrorMessage = nil
         }
@@ -255,6 +259,7 @@ final class MapNavigatorViewModel {
 
     func openRoutePlanning(to destination: PlaceItem) {
         originPlace = locationManager.effectivePlaceItem
+        waypointPlace = nil
         destinationPlace = destination
         addToRecentSearches(destination)
 
@@ -264,6 +269,68 @@ final class MapNavigatorViewModel {
         }
 
         calculateAllModeRoutes()
+    }
+
+    /// 高德特色：沿途順路搜（自動搜尋起終點中間附近最近的加油站 / 咖啡廳 / 停車場 / 充電站並加入途經點）
+    func addAlongRouteWaypoint(category: PlaceCategory) {
+        guard let dest = destinationPlace else { return }
+        let startCoord = (appMode == .navigating) ? navigationEngine.currentCoordinate : originPlace.coordinate
+        let midCoord = CLLocationCoordinate2D(
+            latitude: (startCoord.latitude + dest.latitude) / 2.0,
+            longitude: (startCoord.longitude + dest.longitude) / 2.0
+        )
+
+        isCalculatingRoutes = true
+        Task {
+            let candidates = await searchService.searchCategory(category, near: midCoord)
+            guard !Task.isCancelled else { return }
+            guard let best = candidates.first(where: { $0.name != dest.name }) ?? candidates.first else {
+                isCalculatingRoutes = false
+                return
+            }
+
+            waypointPlace = best
+
+            if appMode == .navigating {
+                let updatedRoutes = await routingService.calculateRoutes(
+                    from: startCoord,
+                    to: dest.coordinate,
+                    waypoint: best.coordinate,
+                    mode: selectedTransportMode
+                )
+                guard !Task.isCancelled else { return }
+                if let primary = updatedRoutes.first {
+                    availableRoutes = updatedRoutes
+                    selectedRoute = primary
+                    navigationEngine.updateActiveRouteDuringNavigation(primary)
+                }
+                isCalculatingRoutes = false
+            } else {
+                calculateAllModeRoutes()
+            }
+        }
+    }
+
+    func clearWaypoint() {
+        waypointPlace = nil
+        if appMode == .navigating, let dest = destinationPlace {
+            let startCoord = navigationEngine.currentCoordinate
+            Task {
+                let updatedRoutes = await routingService.calculateRoutes(
+                    from: startCoord,
+                    to: dest.coordinate,
+                    waypoint: nil,
+                    mode: selectedTransportMode
+                )
+                if let primary = updatedRoutes.first {
+                    availableRoutes = updatedRoutes
+                    selectedRoute = primary
+                    navigationEngine.updateActiveRouteDuringNavigation(primary)
+                }
+            }
+        } else {
+            calculateAllModeRoutes()
+        }
     }
 
     func switchTransportMode(_ mode: TransportMode) {
@@ -297,13 +364,14 @@ final class MapNavigatorViewModel {
         modeComparisonSummaries = [:]
 
         let start = originPlace.coordinate
+        let wp = waypointPlace?.coordinate
         let end = dest.coordinate
         let activeMode = selectedTransportMode
 
         routeCalculationTask = Task {
-            async let drivingTask = routingService.calculateRoutes(from: start, to: end, mode: .driving)
-            async let walkingTask = routingService.calculateRoutes(from: start, to: end, mode: .walking)
-            async let cyclingTask = routingService.calculateRoutes(from: start, to: end, mode: .cycling)
+            async let drivingTask = routingService.calculateRoutes(from: start, to: end, waypoint: wp, mode: .driving)
+            async let walkingTask = routingService.calculateRoutes(from: start, to: end, waypoint: wp, mode: .walking)
+            async let cyclingTask = routingService.calculateRoutes(from: start, to: end, waypoint: wp, mode: .cycling)
 
             let (drivingRoutes, walkingRoutes, cyclingRoutes) = await (drivingTask, walkingTask, cyclingTask)
             guard !Task.isCancelled else { return }
@@ -338,11 +406,12 @@ final class MapNavigatorViewModel {
         routeErrorMessage = nil
 
         let start = originPlace.coordinate
+        let wp = waypointPlace?.coordinate
         let end = dest.coordinate
         let mode = selectedTransportMode
 
         routeCalculationTask = Task {
-            let routes = await routingService.calculateRoutes(from: start, to: end, mode: mode)
+            let routes = await routingService.calculateRoutes(from: start, to: end, waypoint: wp, mode: mode)
             guard !Task.isCancelled else { return }
 
             if let first = routes.first {

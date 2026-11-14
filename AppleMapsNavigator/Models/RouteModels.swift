@@ -107,6 +107,140 @@ enum ManeuverType: String, Codable, Hashable, Sendable {
         case .arrive: return "抵達目的地"
         }
     }
+
+    /// 依目前轉彎指示產生高德風格「車道級導航」配置
+    var laneGuidanceItems: [LaneItem] {
+        switch self {
+        case .turnLeft, .sharpLeft:
+            return [
+                LaneItem(direction: .left, isRecommended: true),
+                LaneItem(direction: .left, isRecommended: true),
+                LaneItem(direction: .straight, isRecommended: false),
+                LaneItem(direction: .right, isRecommended: false)
+            ]
+        case .slightLeft:
+            return [
+                LaneItem(direction: .left, isRecommended: true),
+                LaneItem(direction: .slightLeft, isRecommended: true),
+                LaneItem(direction: .straight, isRecommended: false),
+                LaneItem(direction: .right, isRecommended: false)
+            ]
+        case .turnRight, .sharpRight:
+            return [
+                LaneItem(direction: .left, isRecommended: false),
+                LaneItem(direction: .straight, isRecommended: false),
+                LaneItem(direction: .right, isRecommended: true),
+                LaneItem(direction: .right, isRecommended: true)
+            ]
+        case .slightRight:
+            return [
+                LaneItem(direction: .left, isRecommended: false),
+                LaneItem(direction: .straight, isRecommended: false),
+                LaneItem(direction: .slightRight, isRecommended: true),
+                LaneItem(direction: .right, isRecommended: true)
+            ]
+        case .uTurn:
+            return [
+                LaneItem(direction: .uTurn, isRecommended: true),
+                LaneItem(direction: .straight, isRecommended: false),
+                LaneItem(direction: .straight, isRecommended: false),
+                LaneItem(direction: .right, isRecommended: false)
+            ]
+        case .roundabout:
+            return [
+                LaneItem(direction: .slightLeft, isRecommended: false),
+                LaneItem(direction: .straight, isRecommended: true),
+                LaneItem(direction: .slightRight, isRecommended: true)
+            ]
+        case .straight, .depart, .arrive:
+            return [
+                LaneItem(direction: .left, isRecommended: false),
+                LaneItem(direction: .straight, isRecommended: true),
+                LaneItem(direction: .straight, isRecommended: true),
+                LaneItem(direction: .right, isRecommended: false)
+            ]
+        }
+    }
+}
+
+/// 車道方向類型
+enum LaneDirection: String, Sendable, Hashable {
+    case left
+    case slightLeft
+    case straight
+    case slightRight
+    case right
+    case uTurn
+
+    var symbolName: String {
+        switch self {
+        case .left: return "arrow.turn.up.left"
+        case .slightLeft: return "arrow.up.left"
+        case .straight: return "arrow.up"
+        case .slightRight: return "arrow.up.right"
+        case .right: return "arrow.turn.up.right"
+        case .uTurn: return "arrow.uturn.left"
+        }
+    }
+}
+
+/// 車道級引導單一車道項目
+struct LaneItem: Identifiable, Hashable, Sendable {
+    let id = UUID()
+    let direction: LaneDirection
+    let isRecommended: Bool
+}
+
+/// 紅綠燈讀秒階段
+enum TrafficLightPhase: String, Sendable {
+    case red
+    case green
+    case yellow
+
+    var label: String {
+        switch self {
+        case .red: return "紅燈"
+        case .green: return "綠燈"
+        case .yellow: return "黃燈"
+        }
+    }
+}
+
+/// 沿途測速照相 / 電子眼點位
+struct SpeedCameraPoint: Identifiable, Hashable, @unchecked Sendable {
+    let id: UUID
+    let name: String
+    let speedLimitKMH: Int
+    let distanceAlongRouteMeters: Double
+    let coordinate: CLLocationCoordinate2D
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        speedLimitKMH: Int,
+        distanceAlongRouteMeters: Double,
+        coordinate: CLLocationCoordinate2D
+    ) {
+        self.id = id
+        self.name = name
+        self.speedLimitKMH = speedLimitKMH
+        self.distanceAlongRouteMeters = distanceAlongRouteMeters
+        self.coordinate = coordinate
+    }
+
+    static func == (lhs: SpeedCameraPoint, rhs: SpeedCameraPoint) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+}
+
+/// 測速照相即時預警資訊
+struct SpeedCameraAlert: @unchecked Sendable {
+    let camera: SpeedCameraPoint
+    let distanceAheadMeters: Double
 }
 
 /// 單步導航指引

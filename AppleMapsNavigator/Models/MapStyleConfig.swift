@@ -116,3 +116,31 @@ enum SheetDetent: CaseIterable, Equatable {
     case medium
     case expanded
 }
+
+/// 高德風格 3D 車標模型樣式
+enum Vehicle3DModelStyle: String, CaseIterable, Identifiable, Codable, Sendable {
+    case cyberSportsCar
+    case aeroSUV
+    case mechaWing
+    case classic3DArrow
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .cyberSportsCar: return "3D 超跑座駕"
+        case .aeroSUV: return "3D 休旅座駕"
+        case .mechaWing: return "3D 科幻戰機"
+        case .classic3DArrow: return "經典立體飛翼"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .cyberSportsCar: return "car.side.fill"
+        case .aeroSUV: return "suv.side.fill"
+        case .mechaWing: return "airplane"
+        case .classic3DArrow: return "location.north.fill"
+        }
+    }
+}

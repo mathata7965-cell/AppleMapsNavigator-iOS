@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Turn-by-Turn 導航模式 HUD（頂部高對比轉彎提示卡 + 接著次一步提示 + 底部遙測與模擬重算控制列）
+/// Turn-by-Turn 導航模式 HUD（整合高德級 3D 車道引導、3D 路口實景放大、紅綠燈讀秒、測速照相警示與順路加點）
 struct TurnByTurnHUDView: View {
     @Bindable var viewModel: MapNavigatorViewModel
     let safeAreaTop: CGFloat
@@ -9,17 +9,63 @@ struct TurnByTurnHUDView: View {
     private var engine: NavigationSimulationEngine { viewModel.navigationEngine }
 
     var body: some View {
-        VStack {
-            topGuidanceCard
-                .padding(.top, max(8, safeAreaTop))
-                .padding(.horizontal, 14)
+        VStack(spacing: 10) {
+            VStack(spacing: 8) {
+                topGuidanceCard
+
+                if !engine.hasArrived, let step = engine.currentStep {
+                    LaneGuidanceStripView(maneuverType: step.maneuverType)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                if engine.isJunctionViewActive, let step = engine.currentStep {
+                    Junction3DCrossroadView(
+                        step: step,
+                        distanceMeters: engine.distanceToNextManeuver,
+                        onToggleClose: {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                engine.showJunctionPreviewOverride = false
+                            }
+                        }
+                    )
+                    .transition(.scale(scale: 0.94).combined(with: .opacity))
+                }
+
+                if let cameraAlert = engine.activeSpeedCameraAlert, !engine.hasArrived {
+                    SpeedCameraAlertBannerView(alert: cameraAlert)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .padding(.top, max(8, safeAreaTop))
+            .padding(.horizontal, 14)
 
             Spacer()
+
+            // 左側紅綠燈讀秒 + 速限牌與即時時速儀表
+            if !engine.hasArrived {
+                HStack(alignment: .bottom, spacing: 10) {
+                    TrafficLightCountdownPillView(
+                        phase: engine.trafficLightPhase,
+                        seconds: engine.trafficLightSeconds
+                    )
+
+                    SpeedLimitSignView(
+                        currentSpeedKMH: engine.currentSpeedKMH,
+                        speedLimitKMH: engine.currentSpeedLimitKMH,
+                        isOverSpeed: engine.isOverSpeed
+                    )
+
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+            }
 
             bottomTelemetryBar
                 .padding(.bottom, max(12, safeAreaBottom))
                 .padding(.horizontal, 14)
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: engine.isJunctionViewActive)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: engine.activeSpeedCameraAlert != nil)
     }
 
     // MARK: - 頂部轉彎指示卡
@@ -86,9 +132,24 @@ struct TurnByTurnHUDView: View {
                     }
 
                     Spacer()
+
+                    // 手動預覽 3D 路口實景按鈕
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            engine.showJunctionPreviewOverride.toggle()
+                        }
+                    } label: {
+                        Image(systemName: "view.3d")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 36, height: 36)
+                            .background(Color.white.opacity(engine.showJunctionPreviewOverride ? 0.35 : 0.16), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("切換 3D 路口預覽")
                 }
                 .padding(.horizontal, 18)
-                .padding(.vertical, 16)
+                .padding(.vertical, 14)
                 .background(
                     LinearGradient(
                         colors: [AppleMapsTheme.navGreenDark, AppleMapsTheme.navGreen],
@@ -113,7 +174,7 @@ struct TurnByTurnHUDView: View {
                         Spacer()
                     }
                     .padding(.horizontal, 18)
-                    .padding(.vertical, 9)
+                    .padding(.vertical, 8)
                     .background(Color.black.opacity(0.75))
                 }
             }
@@ -128,55 +189,105 @@ struct TurnByTurnHUDView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: engine.hasArrived)
     }
 
-    // MARK: - 底部遙測與控制面板
+    // MARK: - 底部遙測與高德級模擬控制面板
 
     private var bottomTelemetryBar: some View {
-        VStack(spacing: 12) {
-            // 第一列：模擬控制按鈕列（暫停、倍速、模擬偏離重算）
-            HStack(spacing: 8) {
-                Button {
-                    engine.togglePause()
-                } label: {
-                    Label(engine.isPaused ? "繼續" : "暫停", systemImage: engine.isPaused ? "play.fill" : "pause.fill")
-                        .font(.caption.weight(.bold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color(.secondarySystemGroupedBackground).opacity(0.85), in: Capsule())
+        VStack(spacing: 10) {
+            // 第一列：橫向可捲動控制膠囊（暫停、倍速、偏離重算、3D 車標、沿途順路搜）
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    Button {
+                        engine.togglePause()
+                    } label: {
+                        Label(engine.isPaused ? "繼續" : "暫停", systemImage: engine.isPaused ? "play.fill" : "pause.fill")
+                            .font(.caption.weight(.bold))
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 7)
+                            .background(Color(.secondarySystemGroupedBackground).opacity(0.85), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        engine.cycleSpeedMultiplier()
+                    } label: {
+                        Text("模擬 \(Int(engine.speedMultiplier))x")
+                            .font(.caption.weight(.bold))
+                            .monospacedDigit()
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 7)
+                            .background(AppleMapsTheme.navBlue.opacity(0.16), in: Capsule())
+                            .foregroundStyle(AppleMapsTheme.navBlue)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        engine.simulateOffRouteDeviation()
+                    } label: {
+                        Label("模擬偏離重算", systemImage: "arrow.triangle.branch")
+                            .font(.caption.weight(.bold))
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 7)
+                            .background(AppleMapsTheme.warningAmber.opacity(0.18), in: Capsule())
+                            .foregroundStyle(AppleMapsTheme.warningAmber)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(engine.isRerouting || engine.hasArrived)
+
+                    // 3D 車標模型選擇 Menu
+                    Menu {
+                        Picker("3D 車標模型", selection: $viewModel.vehicleModelStyle) {
+                            ForEach(Vehicle3DModelStyle.allCases) { style in
+                                Label(style.title, systemImage: style.symbolName).tag(style)
+                            }
+                        }
+                    } label: {
+                        Label(viewModel.vehicleModelStyle.title, systemImage: viewModel.vehicleModelStyle.symbolName)
+                            .font(.caption.weight(.bold))
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 7)
+                            .background(Color.cyan.opacity(0.18), in: Capsule())
+                            .foregroundStyle(AppleMapsTheme.navBlue)
+                    }
+
+                    // 沿途順路加點 Menu
+                    Menu {
+                        Button {
+                            viewModel.addAlongRouteWaypoint(category: .gasStation)
+                        } label: {
+                            Label("順路去加油站", systemImage: PlaceCategory.gasStation.symbolName)
+                        }
+                        Button {
+                            viewModel.addAlongRouteWaypoint(category: .evCharger)
+                        } label: {
+                            Label("順路找充電站", systemImage: PlaceCategory.evCharger.symbolName)
+                        }
+                        Button {
+                            viewModel.addAlongRouteWaypoint(category: .cafe)
+                        } label: {
+                            Label("順路買咖啡", systemImage: PlaceCategory.cafe.symbolName)
+                        }
+                        Button {
+                            viewModel.addAlongRouteWaypoint(category: .parking)
+                        } label: {
+                            Label("順路找停車場", systemImage: PlaceCategory.parking.symbolName)
+                        }
+                        if viewModel.waypointPlace != nil {
+                            Divider()
+                            Button(role: .destructive) {
+                                viewModel.clearWaypoint()
+                            } label: {
+                                Label("移除途經點", systemImage: "trash")
+                            }
+                        }
+                    } label: {
+                        Label(viewModel.waypointPlace == nil ? "順路搜" : "已加途經點", systemImage: "plus.circle.fill")
+                            .font(.caption.weight(.bold))
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 7)
+                            .background(AppleMapsTheme.navGreen.opacity(0.18), in: Capsule())
+                            .foregroundStyle(AppleMapsTheme.navGreen)
+                    }
                 }
-                .buttonStyle(.plain)
-
-                Button {
-                    engine.cycleSpeedMultiplier()
-                } label: {
-                    Text("模擬 \(Int(engine.speedMultiplier))x")
-                        .font(.caption.weight(.bold))
-                        .monospacedDigit()
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(AppleMapsTheme.navBlue.opacity(0.16), in: Capsule())
-                        .foregroundStyle(AppleMapsTheme.navBlue)
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    engine.simulateOffRouteDeviation()
-                } label: {
-                    Label("模擬偏離重算", systemImage: "arrow.triangle.branch")
-                        .font(.caption.weight(.bold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(AppleMapsTheme.warningAmber.opacity(0.18), in: Capsule())
-                        .foregroundStyle(AppleMapsTheme.warningAmber)
-                }
-                .buttonStyle(.plain)
-                .disabled(engine.isRerouting || engine.hasArrived)
-
-                Spacer()
-
-                Text("\(Int(engine.currentSpeedKMH.rounded())) km/h")
-                    .font(.caption.weight(.bold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
             }
 
             Divider()

@@ -10,26 +10,27 @@ actor OSRMRoutingService: Sendable {
         self.session = session
     }
 
-    /// 計算多模式與多方案路線（含替代路線與詳細步驟）
+    /// 計算多模式與多方案路線（含途經點、替代路線與詳細步驟）
     func calculateRoutes(
         from origin: CLLocationCoordinate2D,
         to destination: CLLocationCoordinate2D,
+        waypoint: CLLocationCoordinate2D? = nil,
         mode: TransportMode
     ) async -> [RouteOption] {
         // 1. 嘗試 OSRM 開源免費 API
-        if let osrmRoutes = await fetchOSRMRoutes(from: origin, to: destination, mode: mode),
+        if let osrmRoutes = await fetchOSRMRoutes(from: origin, to: destination, waypoint: waypoint, mode: mode),
            !osrmRoutes.isEmpty {
             return osrmRoutes
         }
 
         // 2. 備援：Apple MKDirections
-        if let mkRoutes = await fetchMKDirectionsRoutes(from: origin, to: destination, mode: mode),
+        if let mkRoutes = await fetchMKDirectionsRoutes(from: origin, to: destination, waypoint: waypoint, mode: mode),
            !mkRoutes.isEmpty {
             return mkRoutes
         }
 
         // 3. 最終離線保底：平滑分段幾何模擬路線，確保任何網路環境皆可完整體驗導航
-        return [buildOfflineFallbackRoute(from: origin, to: destination, mode: mode)]
+        return [buildOfflineFallbackRoute(from: origin, to: destination, waypoint: waypoint, mode: mode)]
     }
 
     // MARK: - OSRM REST API
@@ -37,9 +38,11 @@ actor OSRMRoutingService: Sendable {
     private func fetchOSRMRoutes(
         from origin: CLLocationCoordinate2D,
         to destination: CLLocationCoordinate2D,
+        waypoint: CLLocationCoordinate2D?,
         mode: TransportMode
     ) async -> [RouteOption]? {
-        let coordPair = "\(origin.longitude),\(origin.latitude);\(destination.longitude),\(destination.latitude)"
+        let points = [origin, waypoint, destination].compactMap { $0 }
+        let coordPair = points.map { "\($0.longitude),\($0.latitude)" }.joined(separator: ";")
         var components = URLComponents(string: "https://router.project-osrm.org/route/v1/\(mode.osrmProfile)/\(coordPair)")
         components?.queryItems = [
             URLQueryItem(name: "alternatives", value: "true"),
@@ -212,6 +215,37 @@ actor OSRMRoutingService: Sendable {
     private func fetchMKDirectionsRoutes(
         from origin: CLLocationCoordinate2D,
         to destination: CLLocationCoordinate2D,
+        waypoint: CLLocationCoordinate2D?,
+        mode: TransportMode
+    ) async -> [RouteOption]? {
+        if let waypoint {
+            async let leg1Task = fetchSingleMKLeg(from: origin, to: waypoint, mode: mode)
+            async let leg2Task = fetchSingleMKLeg(from: waypoint, to: destination, mode: mode)
+            let (leg1, leg2) = await (leg1Task, leg2Task)
+            guard let first = leg1?.first, let second = leg2?.first else { return nil }
+            let combinedCoords = first.coordinates + second.coordinates.dropFirst()
+            let combinedSteps = first.steps + second.steps
+            return [
+                RouteOption(
+                    summaryTitle: "途經順路路線",
+                    detailTag: "MapKit 多段規劃",
+                    transportMode: mode,
+                    distanceMeters: first.distanceMeters + second.distanceMeters,
+                    durationSeconds: first.durationSeconds + second.durationSeconds,
+                    coordinates: combinedCoords,
+                    steps: combinedSteps,
+                    isRecommended: true,
+                    engineSource: "MapKit 備援"
+                )
+            ]
+        }
+        return await fetchSingleMKLeg(from: origin, to: destination, mode: mode)
+    }
+
+    @MainActor
+    private func fetchSingleMKLeg(
+        from origin: CLLocationCoordinate2D,
+        to destination: CLLocationCoordinate2D,
         mode: TransportMode
     ) async -> [RouteOption]? {
         let request = MKDirections.Request()
@@ -273,9 +307,10 @@ actor OSRMRoutingService: Sendable {
     private func buildOfflineFallbackRoute(
         from origin: CLLocationCoordinate2D,
         to destination: CLLocationCoordinate2D,
+        waypoint: CLLocationCoordinate2D?,
         mode: TransportMode
     ) -> RouteOption {
-        let midPoint = CLLocationCoordinate2D(
+        let midPoint = waypoint ?? CLLocationCoordinate2D(
             latitude: origin.latitude,
             longitude: destination.longitude
         )

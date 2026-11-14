@@ -165,6 +165,22 @@ struct MainMapCanvasView: View {
                 )
         }
 
+        // 沿途測速照相標記
+        ForEach(viewModel.navigationEngine.speedCameras) { camera in
+            Annotation(camera.name, coordinate: camera.coordinate) {
+                SpeedCameraMapPinView(camera: camera)
+            }
+            .annotationTitles(.hidden)
+        }
+
+        // 途經順路點標記
+        if let wp = viewModel.waypointPlace {
+            Annotation(wp.name, coordinate: wp.coordinate) {
+                PlaceAnnotationPinView(place: wp, isSelected: true)
+            }
+            .annotationTitles(.hidden)
+        }
+
         // 目的地旗幟
         if let dest = viewModel.destinationPlace {
             Annotation(dest.name, coordinate: dest.coordinate) {
@@ -173,23 +189,27 @@ struct MainMapCanvasView: View {
             .annotationTitles(.hidden)
         }
 
-        // 3D 導航箭頭車輛標記
+        // 高德風格 3D 立體車標模型
         Annotation("導航車輛", coordinate: viewModel.navigationEngine.currentCoordinate) {
-            NavigationVehicleMarkerView(
-                headingDegrees: viewModel.navigationEngine.currentHeading - viewModel.currentCameraHeading
+            Vehicle3DMeshMarkerView(
+                style: viewModel.vehicleModelStyle,
+                headingDegrees: viewModel.navigationEngine.currentHeading - viewModel.currentCameraHeading,
+                speedKMH: viewModel.navigationEngine.currentSpeedKMH
             )
         }
         .annotationTitles(.hidden)
     }
 
-    @MapContentBuilder
-    private var routePlanningMapContent: some MapContent {
-        let altRoutes = viewModel.availableRoutes.filter {
+    private var alternativePlannedRoutes: [RouteOption] {
+        viewModel.availableRoutes.filter {
             $0.id != viewModel.selectedRoute?.id && $0.coordinates.count >= 2
         }
+    }
 
+    @MapContentBuilder
+    private var routePlanningMapContent: some MapContent {
         // 替代路線（半透明淡藍）
-        ForEach(altRoutes) { altRoute in
+        ForEach(alternativePlannedRoutes) { altRoute in
             MapPolyline(coordinates: altRoute.coordinates)
                 .stroke(
                     AppleMapsTheme.routeAlternative.opacity(0.45),
@@ -211,11 +231,18 @@ struct MainMapCanvasView: View {
                 )
         }
 
-        // 起點與終點徽章
+        // 起點、途經點與終點徽章
         Annotation(viewModel.originPlace.name, coordinate: viewModel.originPlace.coordinate) {
             RouteEndpointBadgeView(isDestination: false, title: viewModel.originPlace.name)
         }
         .annotationTitles(.hidden)
+
+        if let wp = viewModel.waypointPlace {
+            Annotation(wp.name, coordinate: wp.coordinate) {
+                PlaceAnnotationPinView(place: wp, isSelected: true)
+            }
+            .annotationTitles(.hidden)
+        }
 
         if let dest = viewModel.destinationPlace {
             Annotation(dest.name, coordinate: dest.coordinate) {
@@ -228,12 +255,15 @@ struct MainMapCanvasView: View {
     @MapContentBuilder
     private var exploreMapContent: some MapContent {
         ForEach(viewModel.displayedMapPlaces) { place in
-            let isSelected = isSelectedPlace(place)
             Annotation(place.name, coordinate: place.coordinate) {
                 Button {
                     viewModel.selectPlace(place)
                 } label: {
-                    PlaceAnnotationPinView(place: place, isSelected: isSelected)
+                    if viewModel.show3DLandmarks && (place.name.contains("101") || place.category == .attraction || place.category == .evCharger) {
+                        Landmark3DExtrudedPinView(place: place, isSelected: isSelectedPlace(place))
+                    } else {
+                        PlaceAnnotationPinView(place: place, isSelected: isSelectedPlace(place))
+                    }
                 }
                 .buttonStyle(.plain)
             }

@@ -28,9 +28,25 @@ final class NavigationSimulationEngine {
 
     var speedMultiplier: Double = 1.0
     var isPaused: Bool = false
+    var showJunctionPreviewOverride: Bool = false
     private(set) var isRerouting: Bool = false
     private(set) var isOffRouteBannerVisible: Bool = false
     private(set) var hasArrived: Bool = false
+
+    // 高德級智慧警示狀態（速限、電子眼測速、紅綠燈讀秒、路口 3D 放大）
+    private(set) var currentSpeedLimitKMH: Int = 50
+    private(set) var speedCameras: [SpeedCameraPoint] = []
+    private(set) var activeSpeedCameraAlert: SpeedCameraAlert?
+    private(set) var trafficLightPhase: TrafficLightPhase = .green
+    private(set) var trafficLightSeconds: Int = 22
+
+    var isOverSpeed: Bool {
+        currentSpeedKMH > Double(currentSpeedLimitKMH)
+    }
+
+    var isJunctionViewActive: Bool {
+        !hasArrived && (showJunctionPreviewOverride || (distanceToNextManeuver > 0 && distanceToNextManeuver <= 180))
+    }
 
     var estimatedArrivalDate: Date {
         Date().addingTimeInterval(remainingDurationSeconds)
@@ -46,6 +62,8 @@ final class NavigationSimulationEngine {
     private var stepDistanceMarkers: [Double] = []
     private var announcedStepApproaches: Set<UUID> = []
     private var announcedStepTurns: Set<UUID> = []
+    private var announcedCameraIDs: Set<UUID> = []
+    private var trafficLightAccumulator: Double = 0
     private var simulationTask: Task<Void, Never>?
 
     init(routingService: OSRMRoutingService, voiceService: VoiceGuidanceService) {
@@ -83,6 +101,15 @@ final class NavigationSimulationEngine {
         hasArrived = false
         isRerouting = false
         isOffRouteBannerVisible = false
+        showJunctionPreviewOverride = false
+        speedCameras = []
+        activeSpeedCameraAlert = nil
+        announcedCameraIDs = []
+    }
+
+    func updateActiveRouteDuringNavigation(_ route: RouteOption) {
+        configureRouteGeometry(route)
+        voiceService.speak("已為您加入順路途經點並重新規劃路線。", interruptCurrent: true)
     }
 
     func togglePause() {
@@ -190,8 +217,59 @@ final class NavigationSimulationEngine {
 
         self.announcedStepApproaches = []
         self.announcedStepTurns = []
+        self.announcedCameraIDs = []
+        self.activeSpeedCameraAlert = nil
+        self.trafficLightPhase = .green
+        self.trafficLightSeconds = 22
+        self.trafficLightAccumulator = 0
+        self.speedCameras = buildSimulatedSpeedCameras(totalMeters: total, coords: coords)
 
         updateTelemetryAtDistance(0)
+    }
+
+    private func buildSimulatedSpeedCameras(totalMeters: Double, coords: [CLLocationCoordinate2D]) -> [SpeedCameraPoint] {
+        guard totalMeters >= 350, coords.count >= 2 else { return [] }
+        let fractions: [(Double, Int, String)] = totalMeters > 900
+            ? [(0.32, 50, "固定測速照相"), (0.68, 60, "路口多功能科技執法")]
+            : [(0.48, 50, "固定測速照相")]
+
+        return fractions.map { frac, limit, label in
+            let dist = totalMeters * frac
+            let coord = coordinateAtDistance(dist)
+            return SpeedCameraPoint(
+                name: label,
+                speedLimitKMH: limit,
+                distanceAlongRouteMeters: dist,
+                coordinate: coord
+            )
+        }
+    }
+
+    private func coordinateAtDistance(_ meters: Double) -> CLLocationCoordinate2D {
+        guard let route = activeRoute,
+              route.coordinates.count >= 2,
+              cumulativeDistances.count == route.coordinates.count else {
+            return currentCoordinate
+        }
+        let coords = route.coordinates
+        var segIndex = 0
+        for i in 1..<cumulativeDistances.count {
+            if meters <= cumulativeDistances[i] {
+                segIndex = i - 1
+                break
+            }
+            segIndex = coords.count - 2
+        }
+        let startDist = cumulativeDistances[segIndex]
+        let endDist = cumulativeDistances[segIndex + 1]
+        let segLength = max(0.001, endDist - startDist)
+        let t = min(1, max(0, (meters - startDist) / segLength))
+        let p0 = coords[segIndex]
+        let p1 = coords[segIndex + 1]
+        return CLLocationCoordinate2D(
+            latitude: p0.latitude + (p1.latitude - p0.latitude) * t,
+            longitude: p0.longitude + (p1.longitude - p0.longitude) * t
+        )
     }
 
     private func launchSimulationLoop() {
@@ -216,11 +294,57 @@ final class NavigationSimulationEngine {
         traveledMeters = min(totalPathMeters, traveledMeters + effectiveSpeed * deltaSeconds)
         currentSpeedKMH = effectiveSpeed * 3.6
 
+        tickTrafficLight(deltaSeconds: deltaSeconds)
         updateTelemetryAtDistance(traveledMeters)
+        updateSpeedCameraAlerts(at: traveledMeters)
         onCameraTick?(currentCoordinate, currentHeading)
 
         if traveledMeters >= totalPathMeters - 2.0 {
             handleArrival()
+        }
+    }
+
+    private func tickTrafficLight(deltaSeconds: Double) {
+        trafficLightAccumulator += deltaSeconds
+        guard trafficLightAccumulator >= 1.0 else { return }
+        trafficLightAccumulator -= 1.0
+
+        if trafficLightSeconds > 1 {
+            trafficLightSeconds -= 1
+        } else {
+            switch trafficLightPhase {
+            case .green:
+                trafficLightPhase = .yellow
+                trafficLightSeconds = 3
+            case .yellow:
+                trafficLightPhase = .red
+                trafficLightSeconds = 18
+            case .red:
+                trafficLightPhase = .green
+                trafficLightSeconds = 22
+            }
+        }
+    }
+
+    private func updateSpeedCameraAlerts(at meters: Double) {
+        let upcoming = speedCameras
+            .map { cam in (cam, cam.distanceAlongRouteMeters - meters) }
+            .filter { $0.1 >= -15 && $0.1 <= 320 }
+            .sorted { $0.1 < $1.1 }
+
+        if let nearest = upcoming.first {
+            let ahead = max(0, nearest.1)
+            activeSpeedCameraAlert = SpeedCameraAlert(camera: nearest.0, distanceAheadMeters: ahead)
+            currentSpeedLimitKMH = nearest.0.speedLimitKMH
+
+            if ahead <= 280 && ahead > 20 && !announcedCameraIDs.contains(nearest.0.id) {
+                announcedCameraIDs.insert(nearest.0.id)
+                let distText = RouteFormatting.formatDistance(meters: ahead)
+                voiceService.speak("前方 \(distText) 有\(nearest.0.name)，速限 \(nearest.0.speedLimitKMH) 公里。")
+            }
+        } else {
+            activeSpeedCameraAlert = nil
+            currentSpeedLimitKMH = (activeRoute?.transportMode == .driving) ? 60 : 25
         }
     }
 

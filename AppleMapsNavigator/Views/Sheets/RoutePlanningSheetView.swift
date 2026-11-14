@@ -13,6 +13,8 @@ struct RoutePlanningSheetView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     originDestinationCard
 
+                    alongRouteWaypointBar
+
                     transportModeSelector
 
                     routesComparisonSection
@@ -78,6 +80,25 @@ struct RoutePlanningSheetView: View {
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
 
+                if let waypoint = viewModel.waypointPlace {
+                    Divider()
+                    HStack(spacing: 6) {
+                        Text("途經：\(waypoint.name)")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(AppleMapsTheme.navGreen)
+                            .lineLimit(1)
+                        Spacer()
+                        Button {
+                            viewModel.clearWaypoint()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 15))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
                 Divider()
 
                 Text(viewModel.destinationPlace?.name ?? "未選擇目的地")
@@ -101,6 +122,36 @@ struct RoutePlanningSheetView: View {
         }
         .padding(12)
         .background(Color(.secondarySystemGroupedBackground).opacity(0.82), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    // MARK: - 高德特色：沿途順路搜途經點
+
+    private var alongRouteWaypointBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Text("順路加點")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+
+                ForEach([PlaceCategory.gasStation, .evCharger, .cafe, .parking], id: \.self) { cat in
+                    Button {
+                        viewModel.addAlongRouteWaypoint(category: cat)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: cat.symbolName)
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(cat.accentColor)
+                            Text(cat.title)
+                                .font(.caption.weight(.semibold))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color(.secondarySystemGroupedBackground).opacity(0.85), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
     }
 
     // MARK: - 多交通模式切換列 (開車 / 步行 / 單車)
