@@ -1,0 +1,212 @@
+﻿<#
+.SYNOPSIS
+    Zero-Git Windows Cloud IPA Builder for AppleMapsNavigator_iOS.
+.DESCRIPTION
+    Uploads the project to GitHub via pure REST API (no git.exe required),
+    triggers macOS Xcode compilation on GitHub Actions, and downloads
+    AppleMapsNavigator.ipa directly to this project folder for sideloading.
+#>
+
+param(
+    [string]$Token = $env:GITHUB_TOKEN,
+    [string]$RepoName = "AppleMapsNavigator-iOS",
+    [switch]$PrivateRepo
+)
+
+$ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+$RootDir = $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($RootDir)) {
+    $RootDir = Get-Location
+}
+
+Write-Host "==================================================" -ForegroundColor Cyan
+Write-Host "  AppleMapsNavigator 雲端免費編譯 IPA 工具 (Windows)" -ForegroundColor Cyan
+Write-Host "==================================================" -ForegroundColor Cyan
+Write-Host ""
+
+if ([string]::IsNullOrWhiteSpace($Token)) {
+    Write-Host "請輸入您的 GitHub Personal Access Token (需勾選 repo 與 workflow 權限)：" -ForegroundColor Yellow
+    Write-Host "（建立位置：https://github.com/settings/tokens/new ）" -ForegroundColor DarkGray
+    $secure = Read-Host -Prompt "GitHub Token" -AsSecureString
+    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    $Token = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+}
+
+if ([string]::IsNullOrWhiteSpace($Token)) {
+    throw "未提供 GitHub Token，已中止。"
+}
+
+$Headers = @{
+    "Authorization" = "Bearer $Token"
+    "Accept"        = "application/vnd.github+json"
+    "User-Agent"    = "AppleMapsNavigator-CloudBuilder"
+    "X-GitHub-Api-Version" = "2022-11-28"
+}
+
+Write-Host "[1/5] 驗證 GitHub 帳號..." -ForegroundColor Green
+$User = Invoke-RestMethod -Uri "https://api.github.com/user" -Headers $Headers -Method Get
+$Owner = $User.login
+Write-Host "      已登入帳號：$Owner"
+
+Write-Host "[2/5] 檢查或建立 GitHub 倉庫 ($Owner/$RepoName)..." -ForegroundColor Green
+$RepoUri = "https://api.github.com/repos/$Owner/$RepoName"
+$RepoExists = $false
+try {
+    $RepoInfo = Invoke-RestMethod -Uri $RepoUri -Headers $Headers -Method Get
+    $RepoExists = $true
+    $Branch = $RepoInfo.default_branch
+    Write-Host "      找到現有倉庫（預設分支：$Branch）"
+} catch {
+    $CreateBody = @{
+        name        = $RepoName
+        description = "iOS SwiftUI + MapKit Navigation App (Cloud IPA Build)"
+        private     = [bool]$PrivateRepo
+        auto_init   = $true
+    } | ConvertTo-Json
+    $RepoInfo = Invoke-RestMethod -Uri "https://api.github.com/user/repos" -Headers $Headers -Method Post -Body $CreateBody -ContentType "application/json"
+    $Branch = $RepoInfo.default_branch
+    if ([string]::IsNullOrWhiteSpace($Branch)) { $Branch = "main" }
+    Write-Host "      已自動建立新倉庫：https://github.com/$Owner/$RepoName"
+    Start-Sleep -Seconds 2
+}
+
+# 若倉庫為空，先初始化 README 讓 refs/heads/$Branch 存在
+try {
+    $RefInfo = Invoke-RestMethod -Uri "$RepoUri/git/ref/heads/$Branch" -Headers $Headers -Method Get
+} catch {
+    Write-Host "      初始化空白倉庫分支 $Branch..."
+    $InitBytes = [System.Text.Encoding]::UTF8.GetBytes("# $RepoName`n")
+    $InitBody = @{
+        message = "Initialize repository"
+        content = [Convert]::ToBase64String($InitBytes)
+        branch  = $Branch
+    } | ConvertTo-Json
+    $null = Invoke-RestMethod -Uri "$RepoUri/contents/README.md" -Headers $Headers -Method Put -Body $InitBody -ContentType "application/json"
+    Start-Sleep -Seconds 2
+    $RefInfo = Invoke-RestMethod -Uri "$RepoUri/git/ref/heads/$Branch" -Headers $Headers -Method Get
+}
+
+$ParentCommitSha = $RefInfo.object.sha
+
+Write-Host "[3/5] 上傳專案檔案至 GitHub (免安裝 Git)..." -ForegroundColor Green
+$AllFiles = Get-ChildItem -Path $RootDir -File -Recurse -Force | Where-Object {
+    $rel = $_.FullName.Substring($RootDir.Length + 1).Replace("\", "/")
+    ($rel -notmatch '^(\.git/|build/|AppleMapsNavigator\.ipa$|Build-IPA-Cloud\.ps1\.log$)') -and
+    ($_.Extension -ne ".ipa") -and
+    ($_.Name -ne ".DS_Store")
+}
+
+$TreeEntries = @()
+foreach ($File in $AllFiles) {
+    $RelPath = $File.FullName.Substring($RootDir.Length + 1).Replace("\", "/")
+    $Bytes = [System.IO.File]::ReadAllBytes($File.FullName)
+    $BlobBody = @{
+        content  = [Convert]::ToBase64String($Bytes)
+        encoding = "base64"
+    } | ConvertTo-Json
+    $BlobRes = Invoke-RestMethod -Uri "$RepoUri/git/blobs" -Headers $Headers -Method Post -Body $BlobBody -ContentType "application/json"
+
+    $Mode = if ($RelPath.EndsWith(".sh")) { "100755" } else { "100644" }
+    $TreeEntries += @{
+        path = $RelPath
+        mode = $Mode
+        type = "blob"
+        sha  = $BlobRes.sha
+    }
+}
+
+$TreeBody = @{
+    tree = $TreeEntries
+} | ConvertTo-Json -Depth 5
+$TreeRes = Invoke-RestMethod -Uri "$RepoUri/git/trees" -Headers $Headers -Method Post -Body $TreeBody -ContentType "application/json"
+
+$CommitBody = @{
+    message = "Upload AppleMapsNavigator iOS project for Cloud IPA build"
+    tree    = $TreeRes.sha
+    parents = @($ParentCommitSha)
+} | ConvertTo-Json
+$CommitRes = Invoke-RestMethod -Uri "$RepoUri/git/commits" -Headers $Headers -Method Post -Body $CommitBody -ContentType "application/json"
+$NewCommitSha = $CommitRes.sha
+
+$UpdateRefBody = @{
+    sha   = $NewCommitSha
+    force = $true
+} | ConvertTo-Json
+$null = Invoke-RestMethod -Uri "$RepoUri/git/refs/heads/$Branch" -Headers $Headers -Method Patch -Body $UpdateRefBody -ContentType "application/json"
+Write-Host "      已上傳 $($TreeEntries.Count) 個檔案（Commit: $($NewCommitSha.Substring(0,7))）"
+
+Write-Host "[4/5] 等待 GitHub Actions macOS 編譯 AppleMapsNavigator.ipa..." -ForegroundColor Green
+$TargetRun = $null
+for ($i = 0; $i -lt 18; $i++) {
+    Start-Sleep -Seconds 5
+    $RunsRes = Invoke-RestMethod -Uri "$RepoUri/actions/runs?per_page=10" -Headers $Headers -Method Get
+    $TargetRun = $RunsRes.workflow_runs | Where-Object { $_.head_sha -eq $NewCommitSha } | Select-Object -First 1
+    if ($TargetRun) { break }
+}
+
+if (-not $TargetRun) {
+    throw "找不到對應的 GitHub Actions 建置任務，請前往 https://github.com/$Owner/$RepoName/actions 查看。"
+}
+
+Write-Host "      建置任務網址：$($TargetRun.html_url)" -ForegroundColor DarkGray
+while ($TargetRun.status -ne "completed") {
+    Write-Host "      目前狀態：$($TargetRun.status)... (每 10 秒檢查一次)" -ForegroundColor DarkGray
+    Start-Sleep -Seconds 10
+    $TargetRun = Invoke-RestMethod -Uri "$RepoUri/actions/runs/$($TargetRun.id)" -Headers $Headers -Method Get
+}
+
+if ($TargetRun.conclusion -ne "success") {
+    throw "雲端編譯失敗 ($($TargetRun.conclusion))。請開啟上方建置網址查看 Xcode 錯誤日誌：$($TargetRun.html_url)"
+}
+
+Write-Host "[5/5] 下載並解壓縮 AppleMapsNavigator.ipa..." -ForegroundColor Green
+$ArtifactsRes = Invoke-RestMethod -Uri "$RepoUri/actions/runs/$($TargetRun.id)/artifacts" -Headers $Headers -Method Get
+$IpaArtifact = $ArtifactsRes.artifacts | Where-Object { $_.name -eq "AppleMapsNavigator-ipa" } | Select-Object -First 1
+
+if (-not $IpaArtifact) {
+    throw "編譯完成但找不到產物 AppleMapsNavigator-ipa。"
+}
+
+$TempZip = Join-Path $env:TEMP "AppleMapsNavigator-ipa-$($TargetRun.id).zip"
+$TempExtract = Join-Path $env:TEMP "AppleMapsNavigator-ipa-$($TargetRun.id)"
+if (Test-Path $TempExtract) { Remove-Item -Path $TempExtract -Recurse -Force }
+
+# 先取得 302 預簽章下載網址，避免 PowerShell 5.1 將 Authorization 標頭轉發給 Azure Storage 造成 400 錯誤
+$RedirectUrl = $null
+$Req = [System.Net.HttpWebRequest]::Create($IpaArtifact.archive_download_url)
+$Req.Method = "GET"
+$Req.UserAgent = "AppleMapsNavigator-CloudBuilder"
+$Req.Headers.Add("Authorization", "Bearer $Token")
+$Req.AllowAutoRedirect = $false
+try {
+    $Resp = $Req.GetResponse()
+    $RedirectUrl = $Resp.Headers["Location"]
+    $Resp.Close()
+} catch [System.Net.WebException] {
+    if ($_.Exception.Response) {
+        $RedirectUrl = $_.Exception.Response.Headers["Location"]
+        $_.Exception.Response.Close()
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($RedirectUrl)) {
+    Invoke-WebRequest -Uri $IpaArtifact.archive_download_url -Headers $Headers -OutFile $TempZip -UseBasicParsing
+} else {
+    Invoke-WebRequest -Uri $RedirectUrl -OutFile $TempZip -UseBasicParsing
+}
+Expand-Archive -Path $TempZip -DestinationPath $TempExtract -Force
+
+$ExtractedIpa = Join-Path $TempExtract "AppleMapsNavigator.ipa"
+$FinalIpa = Join-Path $RootDir "AppleMapsNavigator.ipa"
+Move-Item -Path $ExtractedIpa -Destination $FinalIpa -Force
+Remove-Item -Path $TempZip -Force -ErrorAction SilentlyContinue
+Remove-Item -Path $TempExtract -Recurse -Force -ErrorAction SilentlyContinue
+
+Write-Host ""
+Write-Host "==================================================" -ForegroundColor Green
+Write-Host "  成功取得側載檔案：$FinalIpa" -ForegroundColor Green
+Write-Host "==================================================" -ForegroundColor Green
+Write-Host "現在請打開 Sideloadly / AltStore / SideStore，將上述 .ipa 拖入即可安裝到 iPhone！" -ForegroundColor Cyan
